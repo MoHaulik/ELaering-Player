@@ -5,16 +5,13 @@ Open the URL in the headset browser, upload the scenario `.zip` exported by the
 Builder, and enter immersive VR — no controllers, no native app, no install, no
 Meta account required.
 
-Cloned from the LærbarXR Player (`MoHaulik/Larbar2026play`) as the starting point
-for a separate client product ("E-Læring"). LærbarXR itself is untouched — this is
-an independent product from here on.
+An independent client product ("E-Læring") for gaze-controlled WebXR playback.
 
-## What changed vs. LærbarXR
+## Key features
 
-- **No remote-start / relay / Dashboard.** The old live-relay subsystem
-  (`RELAY_BASE`, heartbeats, remote start/stop commands, the "no teacher
-  connection" solo-start gate) is gone. This Player never contacts any server —
-  every run is fully local.
+- **No remote-start / relay / Dashboard.** No live-relay subsystem, no
+  heartbeats, no remote start/stop commands. This Player never contacts any
+  server — every run is fully local.
 - **Access-code gate (spec req. ID:02_07).** If the scenario was exported with an
   access code set in the Builder, the Player now shows a code-entry screen before
   Start/Preview will launch it. A scenario with no code set skips the gate.

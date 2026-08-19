@@ -122,10 +122,10 @@
       </div>
 
       <!-- Main menu (spec ID:02_03): scenarios living in a folder on the headset,
-           e.g. Downloads/Scenarios — same idea as the old LærbarXR build, just
-           read straight off the device instead of one file at a time. Shown only
-           where the browser supports it (Meta Quest Browser does); the manual
-           picker below always remains as a fallback. -->
+           e.g. Downloads/Scenarios — read straight off the device instead of
+           one file at a time. Shown only where the browser supports it (Meta
+           Quest Browser does); the manual picker below always remains as a
+           fallback. -->
       <div id="scenario-folder-section" style="display:none;">
         <button type="button" id="open-folder-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6Z"/></svg> Open scenarios folder</button>
         <div id="scenario-menu"></div>
@@ -670,10 +670,9 @@
 
     // === Headset scenario menu (spec ID:02_03) ===
     // Reads scenario .zip/.lxr files straight out of a folder on the headset —
-    // e.g. Downloads/Scenarios, the same idea as the old LærbarXR build's own
-    // folder convention — instead of a one-file-at-a-time picker. Uses the File
-    // System Access API (supported in the Meta Quest Browser); the manual
-    // .zip picker above always remains as a fallback where it isn't.
+    // e.g. Downloads/Scenarios — instead of a one-file-at-a-time picker. Uses
+    // the File System Access API (supported in the Meta Quest Browser); the
+    // manual .zip picker above always remains as a fallback where it isn't.
     const SCENARIO_EXT = /\.(zip|lxr)$/i;
     let scenarioDirHandle = null;
     function escHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
