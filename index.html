@@ -1,0 +1,1898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>E-Læring Quest Player</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
+  <!-- ============================================================
+       DEPENDENCIES ARE VENDORED — this player makes no network request to
+       any third party. Both libraries are committed under vendor/, so the
+       player works on a headset with no internet and cannot be broken by a
+       CDN outage or a CDN version change.
+
+       three.js is loaded as a CLASSIC script (the UMD build), not as an ES
+       module behind an <script type="importmap">. The target device is the
+       Meta Quest 3, whose browser is modern Chromium and would happily run
+       import maps — but the classic script is kept deliberately. It works on
+       Quest 3, it removes the need for any import-map / bare-specifier setup,
+       and it keeps the no-CDN, single-file guarantee intact with zero
+       user-visible downside. There is no reason to churn it into ES modules.
+
+         vendor/three.min.js   three.js r150 (MIT) — build/three.min.js
+         vendor/jszip.min.js   JSZip 3.10.1 (MIT/GPLv3)
+       ============================================================ -->
+  <script src="vendor/jszip.min.js"></script>
+  <script src="vendor/three.min.js"></script>
+
+  <style>
+    :root {
+      --primary: #0969da;
+      --primary-hover: #0855b3;
+      --bg: #f3f4f6;
+      --card-bg: rgba(255, 255, 255, 0.95);
+      --text: #1f2937;
+      --text-muted: #6b7280;
+    }
+    body { margin: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
+    #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9000; padding: 20px; box-sizing: border-box; background: radial-gradient(circle at center, #e5e7eb 0%, #9ca3af 100%); }
+    .card { background: var(--card-bg); border-radius: 20px; padding: 32px 40px; box-shadow: 0 20px 40px rgba(0,0,0,0.15); max-width: 440px; width: 100%; text-align: center; backdrop-filter: blur(10px); }
+    .logo-container { margin-bottom: 24px; }
+    h1 { margin: 0 0 8px 0; font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+    p.subtitle { margin: 0 0 28px 0; color: var(--text-muted); font-size: 15px; }
+    #saved-results { margin-top: 18px; }
+    .saved-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
+    .link-btn { background: none; border: none; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; padding: 4px 6px; text-decoration: underline; }
+    .link-btn.danger { color: #b91c1c; }
+    .identity { text-align: left; margin-bottom: 20px; }
+    .identity label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 0 0 4px 2px; }
+    .identity input { width: 100%; padding: 12px 14px; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 10px; box-sizing: border-box; margin-bottom: 12px; background: #f8fafc; color: var(--text); }
+    .identity input:focus { outline: none; border-color: var(--primary); background: #fff; }
+    .identity input:last-child { margin-bottom: 0; }
+    /* FIX #7: tap-to-pick identity — a headset going on for the first time has
+       no comfortable way to type; these let most students never touch the
+       keyboard at all. The text inputs stay underneath as a fallback/override
+       (renaming a headset, an odd group name, etc.). */
+    .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px 0; }
+    .chip { padding: 10px 16px; font-size: 14px; font-weight: 700; border: 1px solid #cbd5e1; border-radius: 20px; background: #f8fafc; color: var(--text); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .chip:hover { border-color: var(--primary); }
+    .chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .identity-toggle { background: none; border: none; color: var(--primary); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0 0 10px 0; text-decoration: underline; display: block; }
+    .identity input.hidden-input { display: none; }
+    .solo-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.55); align-items: center; justify-content: center; z-index: 10500; padding: 20px; box-sizing: border-box; }
+    .solo-modal.show { display: flex; }
+    .solo-modal-card { background: #fff; border-radius: 18px; padding: 28px; max-width: 380px; width: 100%; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+    .solo-modal-card h3 { margin: 0 0 10px 0; font-size: 19px; }
+    .solo-modal-card p { margin: 0 0 22px 0; font-size: 14px; color: var(--text-muted); line-height: 1.5; }
+    #code-gate-input { width: 100%; box-sizing: border-box; padding: 14px; font-size: 20px; letter-spacing: 4px; text-align: center; border: 1px solid #cbd5e1; border-radius: 10px; margin-bottom: 14px; }
+    #code-gate-error { color: #b91c1c; font-size: 13px; min-height: 18px; margin: -6px 0 10px 0; }
+    .solo-modal-actions { display: flex; flex-direction: column; gap: 10px; }
+    .solo-modal-actions button { padding: 14px; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; border: none; }
+    #code-gate-confirm { background: var(--primary); color: #fff; }
+    #code-gate-cancel { background: #f1f5f9; color: var(--text); }
+    /* Headset scenario menu (spec ID:02_03) — folders on the headset, listed as a
+       tappable main menu instead of a one-off file picker. */
+    #scenario-menu { text-align: left; margin-bottom: 14px; max-height: 220px; overflow-y: auto; }
+    .scenario-menu-item { display: block; width: 100%; text-align: left; padding: 12px 14px; margin-bottom: 6px; border: 1px solid #cbd5e1; border-radius: 10px; background: #f8fafc; color: var(--text); font-weight: 600; font-size: 14px; cursor: pointer; }
+    .scenario-menu-item:hover { border-color: var(--primary); background: #f0f7ff; }
+    .scenario-menu-item small { display: block; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
+    #open-folder-btn { width: 100%; padding: 12px; margin-bottom: 14px; font-size: 14px; font-weight: 600; background: var(--primary); color: #fff; border: none; border-radius: 10px; cursor: pointer; }
+    .file-drop-area { position: relative; display: flex; flex-direction: column; align-items: center; padding: 32px 20px; border: 2px dashed #cbd5e1; border-radius: 16px; background: #f8fafc; cursor: pointer; transition: all 0.2s; margin-bottom: 20px; }
+    .file-drop-area:hover { border-color: var(--primary); background: #f0f7ff; }
+    .file-drop-area span { font-size: 16px; font-weight: 600; color: var(--primary); }
+    .file-drop-area small { color: var(--text-muted); margin-top: 8px; }
+    #file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+    #session-info { font-size: 16px; color: #059669; margin-bottom: 24px; font-weight: 600; min-height: 24px; background: #ecfdf5; padding: 12px; border-radius: 8px; display: none; }
+    #session-info.show { display: block; }
+    #start-button { padding: 16px 32px; font-size: 18px; background: var(--primary); color: white; border: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(9, 105, 218, 0.3); cursor: pointer; transition: all 0.2s; font-weight: 600; width: 100%; }
+    #start-button:hover:not(:disabled) { transform: translateY(-2px); background: var(--primary-hover); box-shadow: 0 6px 16px rgba(9, 105, 218, 0.4); }
+    #start-button:disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; box-shadow: none; }
+    #preview-button { margin-top: 10px; padding: 12px 24px; font-size: 15px; background: transparent; color: var(--primary); border: 1px solid #cbd5e1; border-radius: 12px; cursor: pointer; font-weight: 600; width: 100%; transition: all 0.2s; }
+    #preview-button:hover:not(:disabled) { border-color: var(--primary); background: #f0f7ff; }
+    #preview-button:disabled { color: #94a3b8; cursor: not-allowed; }
+    #status { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); background: rgba(17, 24, 39, 0.9); color: white; padding: 14px 28px; border-radius: 30px; font-size: 15px; font-weight: 500; display: none; z-index: 9999; backdrop-filter: blur(4px); }
+    .exit-xr { position: fixed; top: 24px; right: 24px; background: rgba(255,255,255,0.9); color: #111; border: none; border-radius: 50%; width: 50px; height: 50px; display: none; align-items: center; justify-content: center; font-size: 28px; cursor: pointer; z-index: 9999; font-weight: 300; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .xr-active .exit-xr { display: flex; }
+    .xr-active #overlay { display: none; }
+    video { display: none; }
+  </style>
+</head>
+<body>
+  <!-- Audio is intentionally ON (training narration). playsinline keeps it inline on mobile. -->
+  <video id="video" playsinline crossorigin="anonymous"></video>
+
+  <div id="overlay">
+    <div class="card">
+      <div class="logo-container">
+        <h1>E-Læring Player</h1>
+        <p class="subtitle">Immersive Gaze-Controlled Training</p>
+      </div>
+      <!-- Headset identity. Without this the results file the player writes at the
+           end of a run cannot be attributed to a headset or a group, so the teacher
+           dashboard has nothing to aggregate. Both values persist on the device, so
+           each headset only has to be labelled once. -->
+      <div class="identity">
+        <label for="headset-id">Headset</label>
+        <div class="chip-row" id="headset-id-chips"></div>
+        <input type="text" id="headset-id" class="hidden-input" placeholder="e.g. Headset 07" autocomplete="off">
+        <label for="headset-group">Hold / group</label>
+        <div class="chip-row" id="headset-group-chips"></div>
+        <input type="text" id="headset-group" class="hidden-input" placeholder="e.g. Hold 1" autocomplete="off">
+        <button type="button" class="identity-toggle" id="identity-toggle-typing">✎ Type a different name instead</button>
+      </div>
+
+      <!-- Main menu (spec ID:02_03): scenarios living in a folder on the headset,
+           e.g. Downloads/Scenarios — same idea as the old LærbarXR build, just
+           read straight off the device instead of one file at a time. Shown only
+           where the browser supports it (Meta Quest Browser does); the manual
+           picker below always remains as a fallback. -->
+      <div id="scenario-folder-section" style="display:none;">
+        <button type="button" id="open-folder-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6Z"/></svg> Open scenarios folder</button>
+        <div id="scenario-menu"></div>
+      </div>
+
+      <div class="file-drop-area">
+        <span>Click to Upload Scenario</span>
+        <small>.zip or .lxr packages</small>
+        <input type="file" id="file-input" accept=".zip,.lxr">
+      </div>
+      <div id="session-info"></div>
+      <button id="start-button" disabled>Enter Immersive VR</button>
+      <button id="preview-button" disabled>Run on this screen (no headset)</button>
+
+      <!-- Recovery for runs whose automatic download did not reach the teacher. -->
+      <div id="saved-results"></div>
+    </div>
+  </div>
+
+  <button class="exit-xr" id="exit-xr" aria-label="Exit VR">×</button>
+  <div id="status"></div>
+
+  <!-- Scenario access code (req. ID:02_07) — a scenario authored with a code
+       set in the Builder can only be started once that code is entered here. -->
+  <div class="solo-modal" id="code-gate-modal">
+    <div class="solo-modal-card">
+      <h3>Enter access code</h3>
+      <p>This scenario is code-protected. Ask your instructor for the code to begin.</p>
+      <input type="text" id="code-gate-input" placeholder="••••" autocomplete="off" inputmode="numeric">
+      <div id="code-gate-error"></div>
+      <div class="solo-modal-actions">
+        <button id="code-gate-confirm">Start</button>
+        <button id="code-gate-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // THREE comes from vendor/three.min.js (classic script) — see the note in <head>.
+
+    // Core 3D
+    let camera, scene, renderer, xrSession = null;
+    let videoElement, videoTexture, videoMaterial, videoMesh, fallbackEnvironment;
+    let raycaster, reticle, clock;
+    let xrSupported = false;
+    let referenceSpaceType = 'local';
+    let flatPreview = false;   // running on a normal screen, no headset
+
+    // Logic state
+    let gazeTimer = 0;
+    let lastIntersectedChoice = null;
+    const GAZE_TIME_THRESHOLD = 2.0;  // default dwell; overridable per scenario / per node
+    let currentDwell = GAZE_TIME_THRESHOLD;
+    // Gaze arming (§4.1): choices only become selectable a short moment AFTER they
+    // appear, and a gaze already resting on a choice at that moment must leave and
+    // re-enter before it can select — so the headset can never answer for the learner.
+    const GAZE_ARM_DELAY = 0.7;
+    let choicesVisible = false;   // were any choices selectable last frame?
+    let armed = false;            // has the arming delay elapsed?
+    let armTimer = 0;             // counts up to GAZE_ARM_DELAY once choices appear
+    let preArmedChoice = null;    // choice the gaze was resting on when arming completed
+    const MAX_DT = 0.1;           // clamp: no single frame may advance time by more (§2.1)
+    let sessionData = null;
+    let assetCache = {};
+    let currentNode = null;
+    let nodeTimer = 0;            // monotonic scenario clock for the current node
+    let lastVideoTime = 0;        // last currentTime seen from the clip
+    let videoStalledFor = 0;      // seconds the clip has failed to advance
+    const VIDEO_STALL_GRACE = 0.75; // → wall-clock takes over after this
+    let videoReady = false;       // has the current node's video produced a first frame? (§4.2)
+    let videoFailed = false;      // did the current node's video error / time out? (§4.3)
+    let videoLoadStart = 0;       // performance.now() when the current node's video load began
+    const VIDEO_LOAD_TIMEOUT = 20;// seconds to wait for a video before declaring it failed
+    let videoLoadTimer = null;    // independent wall-clock timer that fails a never-ready clip (§4.3)
+    let activeChoices = [];
+
+    // Where the "Play" gate (shown when autoplay is blocked) sits. An earlier
+    // version of this fix PUSHED the gate further down (toward higher pctY)
+    // to dodge a long question's answer stack -- but "down" is also the
+    // direction of the exit affordance at pctY 96, and the Play button's own
+    // box (512x200 @ scale 1.2 -> half-height ~0.469 world units at its
+    // radius 6.0) is tall enough that even the old default of 88 already
+    // overlapped exit's box (360x120 @ scale 0.7, half-height ~0.164 @
+    // radius 5.5) before any question was involved -- confirmed by measuring
+    // both meshes' actual Three.js world-space bounds in a live test, not by
+    // hand-waved trig. Converting each half-height to the same arc-length
+    // degree units the qGroup shrink math already uses (angle ≈ half-height /
+    // radius, in radians):
+    //   playHalfDeg ≈ (0.9375/2) / (6.0 * PI/180)  ≈ 4.48°
+    //   exitHalfDeg ≈ (0.328125/2) / (5.5 * PI/180) ≈ 1.71°
+    // so the two boxes only clear each other once their centres are more than
+    // ~6.2° apart -- plus a buffer degree -- which on this 50°-arc-to-100-pctY
+    // mapping is ~14.4 pctY units below exit's 96. That puts the ONLY
+    // exit-safe resting spot at ~81.6 pctY, i.e. well above (numerically
+    // below) the old 88 default. So instead of ever moving the gate closer to
+    // exit, it now has one fixed, exit-safe rest position, and the thing that
+    // gives way for a crowded question is the gate's own SIZE (playGateScale
+    // below), the same "shrink to fit, never move the fixed landmark" pattern
+    // the qGroup-vs-exit code already uses.
+    const PLAY_GATE_PCT_Y = 81;
+    // Play button's own half-height, expressed in pctY units at full scale
+    // (derived the same way as PLAY_GATE_PCT_Y above: 4.48° / 50° * 100).
+    const PLAY_GATE_HALF_PCT_Y = 8.95;
+    let playGateScale = 1;
+    let overlaysGroup = new THREE.Group();
+    let sessionEnding = false;    // idempotency guard for endSession (§2.2)
+    let endTimer = null;          // pending end-node → endSession timer (§2.2)
+    let loadingPlane = null;      // in-headset "loading video" indicator (§4.2)
+    let isTransitioning = false;  // guards a node transition in progress (was window.*)
+
+    // Fade-to-black (spec ID:02_09/02_10/02_11): a camera-locked black plane, opacity
+    // driven each frame in render(). SCENE_FADE_SEC is the short cut between scenes
+    // (smooth transitions); END_FADE_SEC is the longer fade over the very end.
+    const SCENE_FADE_SEC = 0.45;
+    const END_FADE_SEC = 4;
+    let fadeMesh = null;
+    let fadeState = null; // {from, to, dur, t, onDone}
+
+    // Audio narration overlay (spec ID:01_12): one optional clip per node.
+    const narrationAudio = new Audio();
+    let narrationPlayed = false;
+    let currentProjection = '360';
+
+    // Clamp an author-supplied dwell time to a sane range; returns 0 for anything
+    // non-numeric so the caller's `|| default` chain falls through.
+    function clampDwell(v) {
+      const n = parseFloat(v);
+      if (!isFinite(n) || n <= 0) return 0;
+      return Math.max(0.5, Math.min(10, n));
+    }
+
+    // Reused temps (no per-frame allocation)
+    const _gazeOrigin = new THREE.Vector3();
+    const _gazeDir = new THREE.Vector3();
+    const _gazeQuat = new THREE.Quaternion();
+
+    // Analytics
+    let sessionLog = [];
+    let sessionStartTime = 0;
+
+
+    // Every run is local-only: no relay, no heartbeats, no remote start/stop.
+    // A scenario authored with an access code (§ code-gate-modal) still needs
+    // that code typed in before it begins — see attemptStart() below.
+    let previewEmbedMode = false;
+
+    // Loads the first node of the scenario. Split out from beginScenario() so
+    // the code-gate (below) can defer it until the correct code is entered.
+    function proceedToFirstNode() {
+      currentNode = sessionData.nodes.find(n => n.id === sessionData.startNode);
+      if (currentNode) {
+        loadNode(currentNode);
+        // BUGFIX: selectChoice() schedules auto-termination whenever a choice or
+        // auto-advance leads INTO an end node, but a scenario whose START node is
+        // itself an end node (e.g. authored by mistake via "Set as Start", or a
+        // scenario that is just a single end screen) skipped that call entirely --
+        // beginScenario() only ever called loadNode() here. End nodes also never
+        // get the in-VR exit affordance (it's intentionally suppressed so a normal
+        // end screen doesn't show a redundant exit prompt), so the two omissions
+        // combined left the learner on a screen with no automatic completion and
+        // no way to advance from inside the headset. Mirror selectChoice's own
+        // end-node handling here so a start-node-is-end scenario finishes cleanly.
+        if (currentNode.type === 'end') {
+          const secs = parseFloat(currentNode.duration);
+          scheduleEndSession((secs > 0 ? secs : 3) * 1000);
+        }
+      } else {
+        // `session` was not in scope here, so a package with a dangling startNode
+        // threw ReferenceError instead of ending cleanly, leaving a black headset.
+        updateStatus('Error: Start node not found.', true);
+        endSession();
+      }
+    }
+    const startButton = document.getElementById('start-button');
+    const fileInput = document.getElementById('file-input');
+    const sessionInfo = document.getElementById('session-info');
+    const statusElement = document.getElementById('status');
+    const exitButton = document.getElementById('exit-xr');
+    const previewButton = document.getElementById('preview-button');
+    const headsetIdInput = document.getElementById('headset-id');
+    const headsetGroupInput = document.getElementById('headset-group');
+
+    // Headset identity, remembered on the device so it survives restarts.
+    function loadIdentity() {
+      try {
+        headsetIdInput.value    = localStorage.getItem('lxr_headset_id')    || '';
+        headsetGroupInput.value = localStorage.getItem('lxr_headset_group') || '';
+      } catch (e) { /* private mode — identity just won't persist */ }
+    }
+    function saveIdentity() {
+      try {
+        localStorage.setItem('lxr_headset_id', headsetIdInput.value.trim());
+        localStorage.setItem('lxr_headset_group', headsetGroupInput.value.trim());
+      } catch (e) {}
+    }
+    function headsetId()    { return headsetIdInput.value.trim() || 'Unnamed headset'; }
+    function headsetGroup() { return headsetGroupInput.value.trim() || 'Hold 1'; }
+
+    // FIX #7: quick-pick identity chips. A student putting a headset on for
+    // the first time has no comfortable way to type a name — no physical
+    // keyboard, and a gaze/controller on-screen keyboard is slow and error
+    // prone. Tapping a number/group chip fills the same underlying input
+    // (and reuses saveIdentity/loadIdentity/headsetId/headsetGroup exactly as
+    // before) so nothing downstream — heartbeats, results files, the
+    // dashboard — needs to know this UI exists. The raw text inputs are kept
+    // as a hidden fallback for anyone who wants a custom name.
+    const headsetIdChips = document.getElementById('headset-id-chips');
+    const headsetGroupChips = document.getElementById('headset-group-chips');
+    const identityToggleBtn = document.getElementById('identity-toggle-typing');
+
+    function makeChip(displayLabel, valueToSet, input, row) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip';
+      chip.textContent = displayLabel;
+      chip.dataset.value = valueToSet;
+      chip.addEventListener('click', function () {
+        input.value = valueToSet;
+        saveIdentity();
+        updateStartEnabled();
+        refreshChipActiveStates();
+      });
+      row.appendChild(chip);
+    }
+
+    function renderIdentityChips() {
+      headsetIdChips.innerHTML = '';
+      headsetGroupChips.innerHTML = '';
+      for (let n = 1; n <= 20; n++) {
+        const padded = n < 10 ? '0' + n : String(n);
+        makeChip(padded, 'Headset ' + padded, headsetIdInput, headsetIdChips);
+      }
+      for (let g = 1; g <= 6; g++) {
+        makeChip('Hold ' + g, 'Hold ' + g, headsetGroupInput, headsetGroupChips);
+      }
+      refreshChipActiveStates();
+    }
+
+    function refreshChipActiveStates() {
+      const idVal = headsetIdInput.value.trim();
+      const groupVal = headsetGroupInput.value.trim();
+      Array.from(headsetIdChips.children).forEach(function (c) {
+        c.classList.toggle('active', c.dataset.value === idVal);
+      });
+      Array.from(headsetGroupChips.children).forEach(function (c) {
+        c.classList.toggle('active', c.dataset.value === groupVal);
+      });
+    }
+
+    // Lets anyone whose real name/group isn't a plain number (a co-teacher
+    // testing a headset, an unusual hold name) fall back to free typing —
+    // the chips remain the default path, this is the escape hatch, not the
+    // other way around.
+    let identityTypingMode = false;
+    function toggleIdentityTypingMode() {
+      identityTypingMode = !identityTypingMode;
+      headsetIdInput.classList.toggle('hidden-input', !identityTypingMode);
+      headsetGroupInput.classList.toggle('hidden-input', !identityTypingMode);
+      headsetIdChips.style.display = identityTypingMode ? 'none' : 'flex';
+      headsetGroupChips.style.display = identityTypingMode ? 'none' : 'flex';
+      identityToggleBtn.textContent = identityTypingMode ? '✓ Use quick-pick buttons instead' : '✎ Type a different name instead';
+      if (identityTypingMode) headsetIdInput.focus();
+    }
+    identityToggleBtn.addEventListener('click', toggleIdentityTypingMode);
+
+    // A stable per-device id, generated once and persisted, appended to the results
+    // filename as a safety net (§4.5). Two unlabelled headsets would otherwise both
+    // write "Unnamed_headset_..._eval.json" and collide in the download folder.
+    function deviceId() {
+      try {
+        let id = localStorage.getItem('lxr_device_id');
+        if (!id) { id = 'dev' + Math.random().toString(36).slice(2, 8); localStorage.setItem('lxr_device_id', id); }
+        return id;
+      } catch (e) { return 'dev' + Math.random().toString(36).slice(2, 8); }
+    }
+
+    // Start/Preview require BOTH a loaded scenario AND a headset name (§4.5), so a run
+    // can never be attributed to "Unnamed headset". Preview (on-screen) still needs a
+    // name too — its results file is imported into the same dashboard.
+    function updateStartEnabled() {
+      const named = headsetIdInput.value.trim().length > 0;
+      const loaded = !!sessionData;
+      startButton.disabled = !(loaded && named && xrSupported);
+      previewButton.disabled = !(loaded && named);
+      // BUGFIX: this used to only ever SET the "enter a headset name" message and
+      // never clear it. Loading a scenario before typing a name (the natural order
+      // for most teachers) left that message on screen forever -- the Start/Preview
+      // buttons correctly re-enabled the moment a name was typed, but the status
+      // text never caught up, so the screen kept telling the teacher to do
+      // something they'd already done. Restore the "Ready: <title>" message once a
+      // name is present, matching what handleFileSelect shows right after a
+      // successful load.
+      if (loaded && !named) {
+        sessionInfo.textContent = 'Enter a headset name above to start';
+        sessionInfo.classList.add('show');
+      } else if (loaded && named) {
+        sessionInfo.textContent = `Ready: ${sessionData.title}`;
+        sessionInfo.classList.add('show');
+      }
+    }
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x111111);
+
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
+      scene.add(camera);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      document.body.appendChild(renderer.domElement);
+
+      clock = new THREE.Clock();
+      raycaster = new THREE.Raycaster();
+
+      const envGeo = new THREE.SphereGeometry(20, 32, 32);
+      const envMat = new THREE.MeshBasicMaterial({ color: 0x1f2937, wireframe: true, transparent: true, opacity: 0.1 });
+      fallbackEnvironment = new THREE.Mesh(envGeo, envMat);
+      scene.add(fallbackEnvironment);
+
+      videoElement = document.getElementById('video');
+      videoTexture = new THREE.VideoTexture(videoElement);
+      videoTexture.minFilter = THREE.LinearFilter;
+      videoTexture.magFilter = THREE.LinearFilter;
+      videoTexture.format = THREE.RGBAFormat;
+      videoTexture.colorSpace = THREE.SRGBColorSpace; // fix: 360 footage no longer washed out
+
+      videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.FrontSide });
+      videoMesh = new THREE.Mesh(makeProjectionGeometry('360'), videoMaterial);
+      videoMesh.visible = false;
+      scene.add(videoMesh);
+
+      // Camera-locked black fade plane (spec ID:02_09/10/11) — always in front, opacity 0 until used.
+      const fadeGeo = new THREE.PlaneGeometry(4, 4);
+      const fadeMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false });
+      fadeMesh = new THREE.Mesh(fadeGeo, fadeMat);
+      fadeMesh.position.set(0, 0, -1.2);
+      fadeMesh.renderOrder = 999;
+      fadeMesh.visible = false;
+      camera.add(fadeMesh);
+
+      scene.add(overlaysGroup);
+      setupGazeInteraction();
+
+      // WebXR capability gate
+      if (navigator.xr && navigator.xr.isSessionSupported) {
+        navigator.xr.isSessionSupported('immersive-vr').then(s => {
+          xrSupported = s;
+          if (!s) updateStatus('Immersive VR not supported on this device/browser', true);
+          updateStartEnabled();
+        }).catch(() => { xrSupported = false; });
+      } else {
+        xrSupported = false;
+        updateStatus('WebXR not available in this browser', true);
+      }
+
+      // Video-readiness signals (§4.2/§4.3): the node timeline is held at 0 until a
+      // real first frame exists, so timed overlays never fire over a black sphere.
+      videoElement.addEventListener('loadeddata', () => { videoReady = true; clearVideoLoadTimer(); });
+      videoElement.addEventListener('playing',    () => { videoReady = true; clearVideoLoadTimer(); });
+      videoElement.addEventListener('error',      markVideoFailed);
+
+      buildLoadingPlane();
+
+      window.addEventListener('resize', onWindowResize);
+      startButton.addEventListener('click', function () { attemptStart(startXR); });
+      previewButton.addEventListener('click', function () { attemptStart(startFlatPreview); });
+      exitButton.addEventListener('click', endSession);
+      fileInput.addEventListener('change', handleFileSelect);
+
+      loadIdentity();
+      renderIdentityChips();
+      initScenarioFolderMenu();
+      // If this device already has a stored identity, no chip tap or typing
+      // is needed at all — quick-pick starts in its default (non-typing) view.
+      headsetIdInput.addEventListener('change', function () { saveIdentity(); refreshChipActiveStates(); });
+      headsetGroupInput.addEventListener('change', function () { saveIdentity(); refreshChipActiveStates(); });
+      // Enable/disable Start live as the name is typed, not only on blur.
+      headsetIdInput.addEventListener('input', function () { updateStartEnabled(); refreshChipActiveStates(); });
+      renderSavedResults();
+    }
+
+    // A small camera-locked plane shown while a node's video is still buffering,
+    // so the learner sees "loading" rather than a silent black sphere (§4.2).
+    function buildLoadingPlane() {
+      loadingPlane = createTextPlane('Indlæser video…', {
+        width: 512, height: 128, fontSize: 40, backgroundColor: 'rgba(17,24,39,0.85)',
+        textColor: 'white', fontWeight: '600'
+      });
+      loadingPlane.position.set(0, 0, -2.5);
+      loadingPlane.visible = false;
+      camera.add(loadingPlane);
+    }
+
+    function showLoading(show) {
+      if (loadingPlane) loadingPlane.visible = show;
+    }
+
+    function setupGazeInteraction() {
+      const reticleGeo = new THREE.RingGeometry(0.015, 0.02, 32);
+      const reticleMat = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.7, transparent: true, side: THREE.DoubleSide });
+      reticle = new THREE.Mesh(reticleGeo, reticleMat);
+
+      const gazeProgressGeo = new THREE.CircleGeometry(0.015, 32);
+      const gazeProgressMat = new THREE.MeshBasicMaterial({ color: 0x0969da, opacity: 0.9, transparent: true, side: THREE.DoubleSide });
+      const gazeProgress = new THREE.Mesh(gazeProgressGeo, gazeProgressMat);
+      gazeProgress.name = 'gazeProgress';
+      gazeProgress.scale.set(0, 0, 0);
+
+      reticle.add(gazeProgress);
+      reticle.position.z = -1;
+      camera.add(reticle);
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // === Upload validation (§6.3) ===
+    const MAX_ZIP_ENTRIES = 500;
+    const MAX_UNCOMPRESSED = 3 * 1024 * 1024 * 1024; // 3 GB total across all entries
+
+    // Normalise a zip-internal path and confirm it stays within `prefix`. Rejects
+    // absolute paths and any "../" escape. Returns the normalised path or null.
+    function withinFolder(path, prefix) {
+      if (typeof path !== 'string' || !path) return null;
+      const norm = path.replace(/\\/g, '/');
+      if (norm.charAt(0) === '/' || norm.indexOf('..') !== -1) return null;
+      return norm.indexOf(prefix) === 0 ? norm : null;
+    }
+
+    function validateScenarioZip(zip) {
+      const names = Object.keys(zip.files);
+      if (names.length > MAX_ZIP_ENTRIES) {
+        throw new Error('Scenario has too many files (' + names.length + ').');
+      }
+      let total = 0;
+      names.forEach(name => {
+        const entry = zip.files[name];
+        // _data.uncompressedSize is populated by JSZip while reading the central
+        // directory — a zip-bomb guard that does not require decompressing anything.
+        const size = (entry && entry._data && entry._data.uncompressedSize) || 0;
+        total += size;
+        // Every non-manifest entry must live under videos/ or images/ and not escape.
+        if (name === 'project.json' || /\/$/.test(name)) return;
+        if (!withinFolder(name, 'videos/') && !withinFolder(name, 'images/') && !withinFolder(name, 'audio/')) {
+          throw new Error('Scenario contains an unexpected file: ' + name);
+        }
+      });
+      if (total > MAX_UNCOMPRESSED) {
+        throw new Error('Scenario is too large when unpacked.');
+      }
+    }
+
+    function validateProject(data) {
+      if (!data || typeof data !== 'object') throw new Error('project.json is not an object.');
+      if (!Array.isArray(data.nodes) || !data.nodes.length) throw new Error('project.json has no nodes.');
+      if (!data.startNode) throw new Error('project.json has no start node.');
+    }
+
+    // Only resolve an asset the manifest points at IF its declared file path is safe.
+    function safeAssetFile(zip, filePath, prefix) {
+      const safe = withinFolder(filePath, prefix);
+      return safe ? zip.file(safe) : null;
+    }
+
+    // === Data & File Loading ===
+    async function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      loadScenarioFromFile(file);
+    }
+
+    async function loadScenarioFromFile(file) {
+      sessionInfo.textContent = 'Loading scenario packages...';
+      sessionInfo.classList.add('show');
+      startButton.disabled = true;
+      previewButton.disabled = true;
+      sessionData = null;
+
+      Object.keys(assetCache).forEach(url => URL.revokeObjectURL(assetCache[url]));
+      assetCache = {};
+
+      try {
+        const zip = await JSZip.loadAsync(file);
+        const projectFile = zip.file('project.json');
+
+        // SECURITY (§6.2): the legacy `index.html` + `const flow = {…}` package was
+        // scraped and run through new Function(), i.e. arbitrary code execution from
+        // an uploaded file. That path is deleted. project.json is the only format.
+        if (!projectFile) {
+          throw new Error('Not an E-Læring scenario — no project.json inside the .zip.');
+        }
+
+        // Structural validation before anything touches the DOM / decoder (§6.3):
+        // cap entry count + uncompressed size, and reject any asset path that
+        // escapes the videos/ or images/ folders (path-traversal guard).
+        validateScenarioZip(zip);
+
+        const projectData = await projectFile.async('string');
+        sessionData = JSON.parse(projectData);
+        validateProject(sessionData);
+
+        const assetPromises = [];
+        if (sessionData.assets && sessionData.assets.videos) {
+          sessionData.assets.videos.forEach(v => {
+            const f = safeAssetFile(zip, v.file, 'videos/');
+            if (f) assetPromises.push(f.async('blob').then(b => { const _ext = (v.file || '').toLowerCase(); const _mime = _ext.endsWith('.webm') ? 'video/webm' : 'video/mp4'; const _typed = (b.type === _mime) ? b : new Blob([b], { type: _mime }); assetCache[v.id] = URL.createObjectURL(_typed); }));
+          });
+        }
+        if (sessionData.assets && sessionData.assets.images) {
+          sessionData.assets.images.forEach(img => {
+            const f = safeAssetFile(zip, img.file, 'images/');
+            if (f) assetPromises.push(f.async('blob').then(b => { const _ext = (img.file || '').toLowerCase(); const _mime = _ext.endsWith('.png') ? 'image/png' : _ext.endsWith('.webp') ? 'image/webp' : _ext.endsWith('.gif') ? 'image/gif' : (_ext.endsWith('.jpg') || _ext.endsWith('.jpeg')) ? 'image/jpeg' : b.type; const _typed = (!_mime || b.type === _mime) ? b : new Blob([b], { type: _mime }); assetCache[img.id] = URL.createObjectURL(_typed); }));
+          });
+        }
+        if (sessionData.assets && sessionData.assets.audio) {
+          sessionData.assets.audio.forEach(au => {
+            const f = safeAssetFile(zip, au.file, 'audio/');
+            if (f) assetPromises.push(f.async('blob').then(b => { const _ext = (au.file || '').toLowerCase(); const _mime = _ext.endsWith('.wav') ? 'audio/wav' : _ext.endsWith('.ogg') ? 'audio/ogg' : 'audio/mpeg'; const _typed = (b.type === _mime) ? b : new Blob([b], { type: _mime }); assetCache[au.id] = URL.createObjectURL(_typed); }));
+          });
+        }
+        await Promise.all(assetPromises);
+
+        if (!sessionData || !sessionData.nodes || !sessionData.startNode) {
+          throw new Error('Invalid project structure.');
+        }
+
+        sessionInfo.textContent = `Ready: ${sessionData.title}`;
+        updateStartEnabled();
+        updateStatus(xrSupported ? 'Scenario loaded successfully!' : 'Loaded — run it on this screen, or open this page on a WebXR headset', !xrSupported);
+      } catch (err) {
+        console.error('Failed to load:', err);
+        sessionInfo.textContent = 'Error parsing file.';
+        updateStatus(`Error: ${err.message}`, true);
+      }
+    }
+
+    // === Headset scenario menu (spec ID:02_03) ===
+    // Reads scenario .zip/.lxr files straight out of a folder on the headset —
+    // e.g. Downloads/Scenarios, the same idea as the old LærbarXR build's own
+    // folder convention — instead of a one-file-at-a-time picker. Uses the File
+    // System Access API (supported in the Meta Quest Browser); the manual
+    // .zip picker above always remains as a fallback where it isn't.
+    const SCENARIO_EXT = /\.(zip|lxr)$/i;
+    let scenarioDirHandle = null;
+    function escHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+    function idbOpen() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open('lxr_player', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('kv');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+    async function idbGet(key) {
+      try {
+        const db = await idbOpen();
+        return await new Promise((res, rej) => {
+          const tx = db.transaction('kv', 'readonly').objectStore('kv').get(key);
+          tx.onsuccess = () => res(tx.result); tx.onerror = () => rej(tx.error);
+        });
+      } catch (e) { return null; }
+    }
+    async function idbSet(key, val) {
+      try {
+        const db = await idbOpen();
+        await new Promise((res, rej) => {
+          const tx = db.transaction('kv', 'readwrite').objectStore('kv').put(val, key);
+          tx.onsuccess = () => res(); tx.onerror = () => rej(tx.error);
+        });
+      } catch (e) {}
+    }
+
+    async function scanScenarioFolder(dirHandle) {
+      const menu = document.getElementById('scenario-menu');
+      menu.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">Scanning…</div>';
+      const items = [];
+      for await (const [name, handle] of dirHandle.entries()) {
+        if (handle.kind === 'file' && SCENARIO_EXT.test(name)) items.push({ name, handle });
+      }
+      if (!items.length) {
+        menu.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">No .zip/.lxr scenarios found in this folder.</div>';
+        return;
+      }
+      menu.innerHTML = '';
+      items.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'scenario-menu-item';
+        btn.textContent = item.name;
+        btn.addEventListener('click', async () => {
+          const file = await item.handle.getFile();
+          loadScenarioFromFile(file);
+        });
+        menu.appendChild(btn);
+        // Best-effort title peek: swaps the raw filename for the real scenario
+        // title as soon as it's known, without blocking the menu meanwhile.
+        item.handle.getFile()
+          .then(f => JSZip.loadAsync(f))
+          .then(zip => { const pj = zip.file('project.json'); return pj ? pj.async('string') : null; })
+          .then(str => {
+            if (!str) return;
+            const title = JSON.parse(str).title;
+            if (title) btn.innerHTML = escHtml(title) + '<small>' + escHtml(item.name) + '</small>';
+          }).catch(() => {});
+      });
+    }
+
+    async function openScenarioFolder() {
+      try {
+        const handle = await window.showDirectoryPicker();
+        scenarioDirHandle = handle;
+        await idbSet('scenarioDir', handle);
+        scanScenarioFolder(handle);
+      } catch (e) { /* user cancelled the picker */ }
+    }
+
+    async function initScenarioFolderMenu() {
+      if (!('showDirectoryPicker' in window)) return; // fallback stays the single-file picker
+      const section = document.getElementById('scenario-folder-section');
+      const openBtn = document.getElementById('open-folder-btn');
+      section.style.display = 'block';
+
+      openBtn.addEventListener('click', async () => {
+        if (scenarioDirHandle) {
+          try {
+            const perm = await scenarioDirHandle.requestPermission({ mode: 'read' });
+            if (perm === 'granted') { scanScenarioFolder(scenarioDirHandle); return; }
+          } catch (e) {}
+        }
+        openScenarioFolder();
+      });
+
+      const saved = await idbGet('scenarioDir');
+      if (saved) {
+        scenarioDirHandle = saved;
+        try {
+          const perm = await saved.queryPermission({ mode: 'read' });
+          if (perm === 'granted') { scanScenarioFolder(saved); return; }
+        } catch (e) {}
+        openBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6Z"/></svg> Continue with saved scenarios folder';
+      }
+    }
+
+    // === Embedded-in-Builder preview ===
+    // The Builder used to reimplement its own flat HTML/CSS renderer for its
+    // preview panel — a second copy of the layout math that inevitably drifted
+    // from what the headset actually shows (clipped text boxes, tiny answer
+    // buttons, choices landing on the exit button never showed up here even
+    // though they did on a real Quest). Instead the Builder now embeds THIS
+    // page in an iframe and drives it over postMessage, so "preview" is this
+    // exact renderer running in flatPreview mode — not a lookalike.
+    window.addEventListener('message', function (e) {
+      const msg = e.data;
+      if (!msg || typeof msg !== 'object') return;
+
+      if (msg.type === 'lxrPreviewLoad') {
+        previewEmbedMode = true;
+
+        // NOT revoked here, unlike a real .zip load's assetCache reset: these
+        // blob: URLs belong to the Builder (it minted them at upload time and
+        // owns their lifecycle), not this page. Per the File API spec a
+        // blob: URL is usable by any document sharing its origin, not only
+        // the one that created it, so aliasing the string directly is both
+        // simpler and more reliable than transferring the underlying Blob and
+        // re-minting a URL here — that route looked right (the bytes came
+        // through intact) but a <video> given a blob: URL made from a
+        // cross-realm-transferred Blob would never leave readyState 0 in
+        // testing, a real Chromium media-pipeline quirk, not a mistake in the
+        // transfer.
+        assetCache = {};
+        (msg.assets || []).forEach(a => { if (a && a.id && a.url) assetCache[a.id] = a.url; });
+
+        sessionData = msg.scenario;
+        if (!sessionData || !sessionData.nodes) return;
+
+        if (xrSession) { try { xrSession.end(); } catch (_) {} }
+        if (flatPreview) { flatPreview = false; renderer.setAnimationLoop(null); }
+        startFlatPreview();
+        return;
+      }
+
+      if (msg.type === 'lxrPreviewUpdateNode') {
+        // Author is editing the node currently on screen — refresh it in
+        // place with the real production code path (same as a real choice
+        // taking you back to a node), so text/answer/position edits show up
+        // live without tearing down the whole preview session.
+        if (!previewEmbedMode || !sessionData || !msg.node) return;
+        const idx = sessionData.nodes.findIndex(n => n.id === msg.node.id);
+        if (idx !== -1) sessionData.nodes[idx] = msg.node;
+        // currentNode is a separate reference from the sessionData.nodes entry
+        // above — every real navigation path (selectChoice, proceedToFirstNode)
+        // reassigns it explicitly before calling loadNode(), and loadNode()
+        // itself never does. Skipping this left currentNode pointing at the
+        // stale pre-edit object even though the array and the screen updated.
+        if (currentNode && currentNode.id === msg.node.id) { currentNode = msg.node; loadNode(msg.node); }
+        return;
+      }
+
+      if (msg.type === 'lxrPreviewGoto') {
+        // Author clicked Restart / Back / Continue / jump-to-node in the
+        // Builder's own nav, or opened the preview on a specific node.
+        if (!previewEmbedMode || !sessionData) return;
+        const node = sessionData.nodes.find(n => n.id === msg.nodeId);
+        if (!node) return;
+        currentNode = node;
+        loadNode(node);
+        if (node.type === 'end') {
+          const secs = parseFloat(node.duration);
+          scheduleEndSession((secs > 0 ? secs : 3) * 1000);
+        }
+      }
+    }, false);
+
+    // Access-code gate (req. ID:02_07): a scenario can only be started once
+    // the code set on it in the Builder (sessionData.accessCode) is entered
+    // here. A scenario authored with no code set skips the gate entirely.
+    const codeGateModal = document.getElementById('code-gate-modal');
+    const codeGateInput = document.getElementById('code-gate-input');
+    const codeGateError = document.getElementById('code-gate-error');
+    function attemptStart(launchFn) {
+      if (previewEmbedMode) { launchFn(); return; } // author preview in the Builder never needs this
+      const requiredCode = sessionData && sessionData.accessCode;
+      if (!requiredCode) { launchFn(); return; }
+      codeGateInput.value = ''; codeGateError.textContent = '';
+      codeGateModal.classList.add('show');
+      codeGateInput.focus();
+      document.getElementById('code-gate-confirm').onclick = function () {
+        if (codeGateInput.value.trim() === String(requiredCode).trim()) {
+          codeGateModal.classList.remove('show');
+          launchFn();
+        } else {
+          codeGateError.textContent = 'Wrong code — try again.';
+        }
+      };
+      document.getElementById('code-gate-cancel').onclick = function () {
+        codeGateModal.classList.remove('show');
+      };
+    }
+
+    // === Immersive XR Lifecycle ===
+    function startXR() {
+      if (!sessionData) return;
+      if (!xrSupported || !navigator.xr) { updateStatus('WebXR immersive-vr unavailable on this device', true); return; }
+      // 'local-floor' is requested as an optional feature, so the reference space
+      // actually granted may be either. Asking the renderer for 'local' regardless
+      // (as the old code did) discards the floor-relative space when it IS granted.
+      navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] })
+        .then(session => {
+          const spaces = (session.enabledFeatures || []);
+          referenceSpaceType = spaces.indexOf('local-floor') !== -1 ? 'local-floor' : 'local';
+          onSessionStarted(session);
+        })
+        .catch(err => updateStatus(`Failed to start VR: ${err.message}`, true));
+    }
+
+    // Runs the scenario in a plain browser window, with no headset: same node logic,
+    // same timeline, same gaze dwell — the cursor stands in for the head direction.
+    // Without this the module could not be demonstrated, checked, or used at all
+    // unless a headset was physically present, which made every scenario impossible
+    // to verify before handing it to a class.
+    function startFlatPreview() {
+      if (!sessionData || flatPreview || xrSession) return;
+      flatPreview = true;
+      document.body.classList.add('xr-active');
+      camera.position.set(0, 0, 0);
+      camera.rotation.set(0, 0, 0);
+      renderer.domElement.addEventListener('pointermove', onFlatPointerMove);
+      renderer.setAnimationLoop(render);
+      updateStatus('Preview mode — move the mouse to look, hold the cursor on an answer to choose');
+      beginScenario();
+    }
+
+    // Mouse position maps to yaw/pitch across the same ±45° / ±25° arc the author
+    // sees in the builder's safe-zone guide, so what is reachable here is what is
+    // reachable in the headset.
+    function onFlatPointerMove(e) {
+      if (!flatPreview) return;
+      const nx = (e.clientX / window.innerWidth) * 2 - 1;
+      const ny = (e.clientY / window.innerHeight) * 2 - 1;
+      camera.rotation.order = 'YXZ';
+      camera.rotation.y = -nx * (Math.PI / 180 * 55);
+      camera.rotation.x = -ny * (Math.PI / 180 * 35);
+    }
+
+    function onSessionStarted(session) {
+      xrSession = session;
+      document.body.classList.add('xr-active');
+      renderer.xr.setReferenceSpaceType(referenceSpaceType);
+      renderer.xr.setSession(session);
+      renderer.setAnimationLoop(render);
+      session.addEventListener('end', onSessionEnd);
+      beginScenario();
+    }
+
+    // Everything that is identical between a headset run and a flat preview.
+    function beginScenario() {
+      saveIdentity();
+      // §2.1 — restart the delta clock at the top of EVERY run. THREE.Clock is created
+      // once and keeps running while renderer.setAnimationLoop(null) has stopped frames;
+      // without this reset the first frame of a second run returns the entire idle gap
+      // as one dt and the whole timeline jumps forward. render() also clamps dt to
+      // MAX_DT so a mid-run interruption (headset removed, system menu) cannot do this.
+      clock.start();
+      sessionEnding = false;
+      if (endTimer) { clearTimeout(endTimer); endTimer = null; }
+      showLoading(false);
+      sessionStartTime = performance.now();
+      sessionLog = [{
+        action: 'session_start',
+        title: sessionData.title,
+        headsetId: headsetId(),
+        group: headsetGroup(),
+        started_at: new Date().toISOString(),
+        session_time_sec: 0
+      }];
+
+      proceedToFirstNode();
+    }
+
+    function onSessionEnd() {
+      document.body.classList.remove('xr-active');
+      renderer.setAnimationLoop(null);
+      xrSession = null;
+      flatPreview = false;
+      if (endTimer) { clearTimeout(endTimer); endTimer = null; }
+      clearVideoLoadTimer();
+      showLoading(false);
+      renderer.domElement.removeEventListener('pointermove', onFlatPointerMove);
+      videoElement.pause();
+      videoElement.removeAttribute('src');
+      videoElement.load();
+      narrationAudio.pause();
+      narrationAudio.removeAttribute('src');
+      fadeState = null;
+      if (fadeMesh) { fadeMesh.material.opacity = 0; fadeMesh.visible = false; }
+      clearOverlays();
+
+      if (previewEmbedMode) {
+        // A test click-through in the Builder is not a class run: no eval.json
+        // download, no localStorage entry, no relay POST. Just tell the Builder
+        // it reached an end so its own preview UI (e.g. a Restart control) can react.
+        try { parent.postMessage({ type: 'lxrPreviewEnded' }, '*'); } catch (_) {}
+        sessionLog = []; sessionStartTime = 0; currentNode = null;
+        return;
+      }
+
+      if (sessionLog.length > 1) {
+        const duration = +((performance.now() - sessionStartTime) / 1000).toFixed(2);
+        sessionLog.push({ action: 'session_end', duration_sec: duration, session_time_sec: duration });
+
+        // The results file now carries the headset's identity alongside the events,
+        // which is what lets the dashboard attribute a run to a headset and a group.
+        const results = {
+          headsetId: headsetId(),
+          deviceId: deviceId(),
+          group: headsetGroup(),
+          scenario: sessionData.title,
+          finished_at: new Date().toISOString(),
+          duration_sec: duration,
+          events: sessionLog
+        };
+        const json = JSON.stringify(results, null, 2);
+        const safe = s => String(s).replace(/[^a-z0-9]/gi, '_');
+        // Device id in the filename is the collision safety net (§4.5): even two
+        // "Unnamed headset" devices land in distinct files.
+        const fileName = `${safe(headsetId())}_${safe(sessionData.title)}_${deviceId()}_eval.json`;
+
+        // Results are stashed on the device BEFORE the download is attempted. On a
+        // headset a download can be silently refused or land somewhere the user can't
+        // reach; the old code swallowed that failure whole and the run's data was
+        // simply lost. Now it always survives locally and can be recovered.
+        try {
+          const keep = JSON.parse(localStorage.getItem('lxr_results') || '[]');
+          keep.push({ fileName: fileName, savedAt: results.finished_at, results: results });
+          while (keep.length > 25) keep.shift();   // bounded — keep the last 25 runs
+          localStorage.setItem('lxr_results', JSON.stringify(keep));
+        } catch (e) { /* storage full or unavailable — the download below is the fallback */ }
+
+        try {
+          const blob = new Blob([json], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+          updateStatus('Results saved: ' + fileName);
+        } catch (err) {
+          updateStatus('Results kept on this device — use "Saved results" to retrieve them', true);
+        }
+        renderSavedResults();
+      }
+      sessionLog = []; sessionStartTime = 0; currentNode = null;
+    }
+
+    // 180° footage (spec ID:01_07/02_?): a forward-facing half-dome instead of a full
+    // sphere, so a 180° equirectangular clip isn't stretched around the whole circle.
+    function makeProjectionGeometry(proj) {
+      // phiStart=PI centers the half-dome on the camera's default forward
+      // direction (-Z) — verified empirically via raycasts from the origin,
+      // since three.js's phi parameterization isn't the intuitive "0 = forward".
+      const geo = proj === '180'
+        ? new THREE.SphereGeometry(15, 64, 32, Math.PI, Math.PI, 0, Math.PI)
+        : new THREE.SphereGeometry(15, 64, 32, 0, Math.PI * 2, 0, Math.PI);
+      geo.scale(-1, 1, 1);
+      return geo;
+    }
+    function applyVideoProjection(proj) {
+      proj = proj === '180' ? '180' : '360';
+      if (proj === currentProjection) return;
+      currentProjection = proj;
+      videoMesh.geometry.dispose();
+      videoMesh.geometry = makeProjectionGeometry(proj);
+    }
+
+    // Fade-to-black driver, ticked from render(). onDone fires once, at completion.
+    function fadeTo(target, dur, onDone) {
+      fadeMesh.visible = true;
+      fadeState = { from: fadeMesh.material.opacity, to: target, dur: Math.max(0.05, dur), t: 0, onDone: onDone };
+    }
+    function tickFade(dt) {
+      if (!fadeState) return;
+      fadeState.t += dt;
+      const p = Math.min(1, fadeState.t / fadeState.dur);
+      fadeMesh.material.opacity = fadeState.from + (fadeState.to - fadeState.from) * p;
+      if (p >= 1) {
+        const done = fadeState.onDone;
+        fadeMesh.visible = fadeState.to > 0.001;
+        fadeState = null;
+        if (done) done();
+      }
+    }
+
+    // === Video playback with a real fallback (no silent swallow) ===
+    function playVideo(src) {
+      videoElement.src = src;
+      videoElement.loop = false;
+      videoMesh.visible = true;
+      const p = videoElement.play();
+      if (p && p.catch) p.catch(() => showPlayGate());
+    }
+
+    function showPlayGate() {
+      if (overlaysGroup.getObjectByName('playGate')) return;
+      updateStatus('Gaze the ▶ Play button to start the video', true);
+      const btn = createTextPlane('▶ Play', { width: 512, height: 200, fontSize: 72, backgroundColor: 'rgba(9,105,218,0.95)', textColor: 'white', fontWeight: '700', scale: 1.2 });
+      // Low in the field of view, and nearer than the question arc. It used to sit
+      // dead centre at the same depth as the question, so whenever autoplay was
+      // blocked the gate covered the answers and swallowed every gaze aimed at them —
+      // the learner could see the choices but could never select one. The position
+      // itself is a fixed, exit-safe spot (PLAY_GATE_PCT_Y); playGateScale (computed
+      // in loadNode, per node) shrinks the button instead when a long question with
+      // many answers reaches down far enough to otherwise crowd it.
+      positionMeshFromXY(btn, 50, PLAY_GATE_PCT_Y, 6.0);
+      btn.scale.setScalar(playGateScale);
+      btn.name = 'playGate';
+      btn.userData = { isChoice: true, choiceData: { __retryPlay: true, label: 'play_gate' } };
+      overlaysGroup.add(btn);
+      activeChoices.push(btn);
+    }
+
+    function clearPlayGate() {
+      const gate = overlaysGroup.getObjectByName('playGate');
+      if (gate) { overlaysGroup.remove(gate); disposeNode(gate); activeChoices = activeChoices.filter(c => c !== gate); }
+    }
+
+    function clearVideoLoadTimer() {
+      if (videoLoadTimer) { clearTimeout(videoLoadTimer); videoLoadTimer = null; }
+    }
+
+    // Declare the current node's video unloadable and let the run continue (§4.3).
+    // Shared by the 'error' listener, the render-loop timeout and the independent
+    // wall-clock timer below so all three routes behave identically and idempotently.
+    function markVideoFailed() {
+      clearVideoLoadTimer();
+      if (videoFailed || videoReady) return;
+      videoFailed = true;
+      showLoading(false);
+      updateStatus('Video kunne ikke indlæses — fortsætter', true);
+    }
+
+    // === Node Logic ===
+    async function loadNode(node) {
+      // session_time_sec (seconds since the run began) is what the dashboard and any
+      // spreadsheet actually need; the old raw performance.now() timestamp was an
+      // arbitrary number of milliseconds since page load and could not be analysed.
+      sessionLog.push({
+        action: 'node_start', node_id: node.id, title: node.title,
+        session_time_sec: +((performance.now() - sessionStartTime) / 1000).toFixed(2)
+      });
+      if (previewEmbedMode) { try { parent.postMessage({ type: 'lxrPreviewNode', nodeId: node.id }, '*'); } catch (_) {} }
+      clearOverlays();
+      nodeTimer = 0;
+      lastVideoTime = 0;
+      videoStalledFor = 0;
+      videoReady = false;
+      videoFailed = false;
+      videoLoadStart = performance.now();
+      clearVideoLoadTimer();       // drop any pending timer from the previous node
+      isTransitioning = false;
+      // Reset gaze arming for the new node (§4.1).
+      choicesVisible = false; armed = false; armTimer = 0; preArmedChoice = null;
+      // Dwell time: per-node override → per-scenario override → 2.0s default (§4.1).
+      currentDwell = clampDwell(node.gazeDwellSec) || clampDwell(sessionData.gazeDwellSec) || GAZE_TIME_THRESHOLD;
+
+      videoElement.pause();
+      videoMesh.visible = false;
+      narrationAudio.pause();
+      narrationPlayed = false;
+      showLoading(!!node.video);   // show the buffering indicator only for video nodes
+      if (node.video) {
+        let videoSrc = assetCache[node.video];
+        let videoAsset = null;
+        if (sessionData.assets && sessionData.assets.videos) {
+          videoAsset = sessionData.assets.videos.find(v => v.id === node.video);
+          if (!videoSrc && videoAsset) videoSrc = assetCache[videoAsset.id] || assetCache[videoAsset.name];
+        }
+        applyVideoProjection(videoAsset && videoAsset.projection);
+        if (node.narration && node.narration.file && assetCache[node.narration.file]) {
+          narrationAudio.src = assetCache[node.narration.file];
+        } else {
+          narrationAudio.removeAttribute('src');
+        }
+        if (videoSrc) {
+          playVideo(videoSrc);
+          // Hard wall-clock timeout, independent of any video event AND of the rAF
+          // render loop. Some malformed clips (e.g. a truncated file) never fire
+          // 'error' and never leave NETWORK_LOADING, so the 'error' listener never
+          // runs; and the render-loop timeout only ticks while frames are produced,
+          // so a backgrounded tab or a stalled XR frame loop could hold the spinner
+          // forever. A plain timer fires regardless of both, guaranteeing the run
+          // always moves on. markVideoFailed() no-ops if the clip became ready first.
+          clearVideoLoadTimer();
+          videoLoadTimer = setTimeout(markVideoFailed, VIDEO_LOAD_TIMEOUT * 1000);
+        }
+        else { videoFailed = true; showLoading(false); }  // referenced clip absent
+      }
+
+      if (node.imageOverlays) {
+        for (const io of node.imageOverlays) {
+          if (!io.imageId || !assetCache[io.imageId]) continue;
+          const mesh = await createImagePlane(assetCache[io.imageId], { scale: io.scale || 1 });
+          if (mesh) {
+            positionMeshFromXY(mesh, io.x, io.y, 7.5);
+            mesh.userData = { startTime: io.time || 0, endTime: (io.time || 0) + (io.duration || 5), isOverlay: true };
+            mesh.visible = false;
+            overlaysGroup.add(mesh);
+          }
+        }
+      }
+
+      if (node.textOverlays) {
+        for (const to of node.textOverlays) {
+          // Optional formatting fields (§5.1) — all default to the previous look.
+          const textMesh = createTextPlane(to.text || '', {
+            backgroundColor: to.color || 'rgba(255, 255, 255, 0.95)',
+            textColor: to.textColor || 'black',
+            scale: to.scale || 1,
+            fontSize: to.fontSize ? parseFloat(to.fontSize) : 32,
+            fontWeight: to.fontWeight || 'normal',
+            align: to.align || 'center'
+          });
+          positionMeshFromXY(textMesh, to.x, to.y, 7);
+          textMesh.userData = { startTime: to.time || 0, endTime: (to.time || 0) + (to.duration || 3), isOverlay: true };
+          textMesh.visible = false;
+          overlaysGroup.add(textMesh);
+        }
+      }
+
+      // Mid-video waypoints (spec ID:01_13): optional gaze hotspots that jump to
+      // another node. __waypoint marks them so they never block auto-advance the
+      // way an unanswered question would (see `choicesPending` in render()).
+      if (node.waypoints) {
+        for (const wp of node.waypoints) {
+          if (!wp.target) continue;
+          const wpMesh = createTextPlane('➤ ' + (wp.label || 'Gå til'), {
+            width: 420, height: 130, fontSize: 36, backgroundColor: 'rgba(17,24,39,0.85)',
+            textColor: 'white', fontWeight: '600', scale: 0.85
+          });
+          positionMeshFromXY(wpMesh, wp.x !== undefined ? wp.x : 50, wp.y !== undefined ? wp.y : 50, 6.5);
+          wpMesh.userData = {
+            isOverlay: true, isChoice: true,
+            startTime: wp.time || 0, endTime: (wp.time || 0) + (wp.duration || 6),
+            choiceData: { target: wp.target, label: wp.label || 'waypoint', transition: wp.transition, __waypoint: true }
+          };
+          wpMesh.visible = false;
+          attachProgressRing(wpMesh);
+          overlaysGroup.add(wpMesh);
+          activeChoices.push(wpMesh);
+        }
+      }
+
+      // "Hear again" replay button (spec ID:01_12C) — present whenever this node
+      // has a narration clip, from the moment it starts playing.
+      if (node.narration && node.narration.file) {
+        const hearMesh = createTextPlane('🔊 Hør igen', {
+          width: 380, height: 120, fontSize: 34, backgroundColor: 'rgba(17,24,39,0.75)',
+          textColor: 'white', fontWeight: '600', scale: 0.65
+        });
+        positionMeshFromXY(hearMesh, 12, 96, 5.5);
+        hearMesh.userData = {
+          isOverlay: true, startTime: node.narration.startTime || 0, endTime: Infinity,
+          isChoice: true, choiceData: { __hearAgain: true, label: 'hear_again' }
+        };
+        hearMesh.visible = false;
+        attachProgressRing(hearMesh);
+        overlaysGroup.add(hearMesh);
+        activeChoices.push(hearMesh);
+      }
+
+      // Reset to full size for every node; only shrunk below if this node's
+      // question/choices block actually reaches far enough down to crowd the
+      // Play gate's fixed, exit-safe resting spot (PLAY_GATE_PCT_Y).
+      playGateScale = 1;
+
+      if (node.question || (node.choices && node.choices.length > 0)) {
+        const qGroup = new THREE.Group();
+        const scale = node.questionScale || 1;
+        // Matches the exit affordance's own positionMeshFromXY(50, 96, 5.5) call
+        // below — kept as one constant so the two can't quietly drift apart.
+        const EXIT_PCT_Y = 96;
+
+        // Boxes are stacked top-to-bottom using each one's REAL rendered height
+        // (createTextPlane measures the actual wrapped text and reports it back
+        // via userData.boxHeight) instead of a guessed fixed step. A fixed step
+        // is what let long answer text spill out of — or visually merge into —
+        // its neighbour: short text and six-line text used to consume the same
+        // vertical slot. cursorTop tracks where the TOP edge of the next box
+        // belongs; lowestBottomEdge is the furthest down anything has reached,
+        // used below to guarantee the whole block can never reach the exit
+        // button, no matter how much text or how many choices a scenario has.
+        const GAP = 0.09;
+        let cursorTop = 0;
+        let lowestBottomEdge = 0;
+
+        if (node.question) {
+          // height:150 is a floor, not a cap — createTextPlane grows it for any
+          // question that actually needs more room. The old fixed 256 reserved
+          // enough vertical space for ~3 lines even for a one-line question,
+          // which is exactly the wasted headroom that squeezed answer choices
+          // toward (and, with enough of them, past) the exit affordance below.
+          const qMesh = createTextPlane(node.question, {
+            width: 1024, height: 150,
+            fontSize: node.questionFontSize ? parseFloat(node.questionFontSize) : 50,
+            backgroundColor: 'rgba(17, 24, 39, 0.9)', textColor: 'white',
+            fontWeight: node.questionFontWeight || '700',
+            align: node.questionAlign || 'center',
+            scale: scale
+          });
+          const qH = qMesh.userData.boxHeight;
+          qMesh.position.set(0, cursorTop - qH / 2, 0);
+          qGroup.add(qMesh);
+          cursorTop -= qH + GAP;
+          lowestBottomEdge = cursorTop + GAP;
+        }
+        if (node.choices && node.choices.length > 0) {
+          node.choices.forEach((choice) => {
+            // Answer-option formatting (§5.1): each choice may carry its own bg /
+            // text colour and size. Math.max(0.85, ...) is a hard floor on the
+            // FINAL size (after combining with the node's overall questionScale)
+            // so a gaze target can never end up too small to comfortably hit,
+            // regardless of what an author sets — this is the fix for "answers
+            // too small to hit", not just a bigger default.
+            const authoredScale = choice.scale ? parseFloat(choice.scale) : 1;
+            const cScale = Math.max(0.85, authoredScale * scale);
+            const cMesh = createTextPlane(choice.label, {
+              width: 800, height: 180,
+              fontSize: choice.fontSize ? parseFloat(choice.fontSize) : 50,
+              backgroundColor: choice.bgColor || 'rgba(9, 105, 218, 0.95)',
+              textColor: choice.textColor || 'white',
+              fontWeight: choice.fontWeight || 'normal',
+              align: choice.align || 'center',
+              scale: cScale
+            });
+            const cH = cMesh.userData.boxHeight;
+            cMesh.position.set(0, cursorTop - cH / 2, 0);
+            cMesh.userData.isChoice = true;
+            cMesh.userData.choiceData = choice;
+            attachProgressRing(cMesh);
+            qGroup.add(cMesh);
+            activeChoices.push(cMesh);
+            cursorTop -= cH + GAP;
+            lowestBottomEdge = cursorTop + GAP;
+          });
+        }
+
+        // Hard guarantee (§4.4b): however tall the question + every choice ends
+        // up — one long answer, five short ones, any combination an author can
+        // build — this block can never grow down far enough to reach the exit
+        // affordance. Exit's own position never moves (a learner needs it to
+        // stay predictable); instead the content block shrinks uniformly if it
+        // would otherwise encroach. In the ordinary case (a question and a
+        // couple of short-to-medium answers) this never triggers at all.
+        const qPctY = Math.min(node.questionY !== undefined ? parseFloat(node.questionY) : 50, 80);
+        const ARC_DEG = 50, EXIT_MARGIN_DEG = 3, qRadius = 6.5;
+        const pitchAtAnchorDeg = (50 - qPctY) / 100 * ARC_DEG;
+        const pitchAtExitDeg = (50 - EXIT_PCT_Y) / 100 * ARC_DEG;
+        const downwardBudgetDeg = Math.max(0, pitchAtAnchorDeg - (pitchAtExitDeg + EXIT_MARGIN_DEG));
+        const downwardBudgetUnits = (downwardBudgetDeg * Math.PI / 180) * qRadius;
+        const neededDownwardUnits = -lowestBottomEdge;
+        let qGroupFinalScale = 1;
+        if (neededDownwardUnits > downwardBudgetUnits && neededDownwardUnits > 0) {
+          qGroupFinalScale = Math.max(0.3, downwardBudgetUnits / neededDownwardUnits);
+          qGroup.scale.setScalar(qGroupFinalScale);
+        }
+
+        // The "Play" gate (shown only if autoplay gets blocked) used to sit at
+        // a fixed spot that assumed a short question — fine for a couple of
+        // short answers, but an 11-answer question with long text reaches
+        // much further down, and the gate could land squarely on top of the
+        // answer stack (found via a real stress-test build, not a hypothetical).
+        // Compute where THIS block's bottom edge actually ends up, in the same
+        // pitch-degree terms as the exit-avoidance math just above. The gate
+        // itself never moves (that's how it stays exit-safe -- see
+        // PLAY_GATE_PCT_Y above); instead it shrinks, like the qGroup does
+        // against exit, just enough that its own top edge clears this bottom
+        // edge by a one-pctY buffer. Floored at 0.5 so it never shrinks to
+        // something ungazeable at the most extreme stress case.
+        const effectiveDownwardDeg = (neededDownwardUnits * qGroupFinalScale) / (Math.PI / 180 * qRadius);
+        const bottomEdgePctY = qPctY + (effectiveDownwardDeg / ARC_DEG * 100);
+        const playGateTopEdgeIfFullSize = PLAY_GATE_PCT_Y - PLAY_GATE_HALF_PCT_Y;
+        if (bottomEdgePctY > playGateTopEdgeIfFullSize - 1) {
+          playGateScale = Math.max(0.5, Math.min(1,
+            (PLAY_GATE_PCT_Y - bottomEdgePctY - 1) / PLAY_GATE_HALF_PCT_Y
+          ));
+        }
+
+        positionMeshFromXY(qGroup, node.questionX || 50, qPctY, qRadius);
+        qGroup.userData = { startTime: node.questionTime || 0, endTime: Infinity, isOverlay: true };
+        qGroup.visible = false;
+        overlaysGroup.add(qGroup);
+      }
+
+      // In-VR exit affordance (§4.4): a gaze target low in the periphery, well away
+      // from the answer arc, with a deliberately longer dwell so it can't be tripped
+      // by accident. Present on every non-end node so a learner is never trapped.
+      // Position (50, 96, 5.5) is intentionally the same EXIT_PCT_Y/EXIT_RADIUS used
+      // above to keep the question/choice block clear of this exact spot.
+      if (node.type !== 'end') {
+        const exitMesh = createTextPlane('✕ Afslut', {
+          width: 360, height: 120, fontSize: 40,
+          backgroundColor: 'rgba(17,24,39,0.75)', textColor: '#fca5a5', fontWeight: '600', scale: 0.7
+        });
+        positionMeshFromXY(exitMesh, 50, 96, 5.5);
+        exitMesh.userData = { isChoice: true, choiceData: { __exit: true, label: 'exit' }, dwell: Math.max(2.5, currentDwell * 1.5) };
+        attachProgressRing(exitMesh);
+        overlaysGroup.add(exitMesh);
+        activeChoices.push(exitMesh);
+      }
+    }
+
+    // A radial progress ring drawn on the targeted choice itself (§4.1), so the
+    // learner can watch a selection building and look away before it commits. The
+    // ring's geometry is regenerated with the current fill angle only for the
+    // targeted mesh, so it costs one geometry per frame at most.
+    function attachProgressRing(mesh) {
+      const geo = new THREE.RingGeometry(0.28, 0.34, 40, 1, 0, 0.0001);
+      const mat = new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.95, side: THREE.DoubleSide });
+      const ring = new THREE.Mesh(geo, mat);
+      ring.name = 'progressRing';
+      ring.position.set(0, 0, 0.02);
+      ring.visible = false;
+      mesh.add(ring);
+    }
+
+    // Map the builder's FLAT 16:9 frame to a forward-facing arc.
+    // ±45° horizontal / ±25° vertical ≈ 16:9, so authoring is WYSIWYG and
+    // everything stays inside the gaze-reachable forward field of view.
+    function positionMeshFromXY(mesh, pctX, pctY, radius) {
+      pctX = pctX !== undefined ? pctX : 50;
+      pctY = pctY !== undefined ? pctY : 50;
+      const yaw   = (pctX - 50) / 100 * (Math.PI / 180 * 90); // ±45°
+      const pitch = (50 - pctY) / 100 * (Math.PI / 180 * 50); // ±25°
+      mesh.position.set(
+        radius * Math.sin(yaw) * Math.cos(pitch),
+        radius * Math.sin(pitch),
+        -radius * Math.cos(yaw) * Math.cos(pitch)
+      );
+      mesh.lookAt(0, 0, 0);
+    }
+
+    // === Selection Logic ===
+    // `isAuto` marks a navigation the render loop triggered because a node's
+    // timeline ran out with no learner choice (§2.3). It is logged as a distinct
+    // `auto_advance` action, NEVER as a `choice_made` answer, so the teacher's CSV
+    // can never contain an answer no learner gave.
+    function selectChoice(choice, isAuto) {
+      // Retry-play gate is handled before the transition lock.
+      if (choice && choice.__retryPlay) {
+        clearPlayGate();
+        isTransitioning = false;
+        updateGazeProgress(0);
+        const p = videoElement.play();
+        if (p && p.catch) p.catch(() => showPlayGate());
+        return;
+      }
+
+      // "Hear again" (§1_12C) — replays narration in place, no navigation at all.
+      if (choice && choice.__hearAgain) {
+        updateGazeProgress(0);
+        try { narrationAudio.currentTime = 0; narrationAudio.play(); } catch (e) {}
+        return;
+      }
+
+      // In-VR exit affordance (§4.4) — instant, no fade: this is a deliberate abort.
+      if (choice && choice.__exit) {
+        isTransitioning = true;
+        endSession();
+        return;
+      }
+
+      if (isTransitioning) return;
+      isTransitioning = true;
+
+      const nowSec = +((performance.now() - sessionStartTime) / 1000).toFixed(2);
+      if (isAuto) {
+        sessionLog.push({
+          action: 'auto_advance', node: currentNode.id, node_title: currentNode.title,
+          target: choice.target,
+          session_time_sec: nowSec, node_time_sec: +nodeTimer.toFixed(2)
+        });
+      } else {
+        sessionLog.push({
+          action: 'choice_made', node: currentNode.id, node_title: currentNode.title,
+          question: currentNode.question || '',
+          choice: choice.label, correct: choice.correct, target: choice.target,
+          session_time_sec: nowSec, node_time_sec: +nodeTimer.toFixed(2)
+        });
+      }
+      updateGazeProgress(0);
+
+      // Direct vs. smooth transition (spec ID:02_09/02_10): a choice/waypoint can
+      // override its node's default; the scenario-wide default is 'smooth'.
+      const mode = choice.transition || currentNode.transition || 'smooth';
+
+      let nextNodeId = choice.target || currentNode.defaultNext;
+      const goTo = function () {
+        const nextNode = sessionData.nodes.find(n => n.id === nextNodeId);
+        if (nextNode) {
+          // §2.2 — advance currentNode in BOTH branches. Leaving it on the previous
+          // node made the render loop keep evaluating that node's timeline and
+          // re-fire auto-nav into the end node, writing phantom/duplicate rows.
+          currentNode = nextNode;
+          loadNode(nextNode);
+          if (mode === 'smooth') fadeTo(0, SCENE_FADE_SEC);
+          if (nextNode.type === 'end') {
+            // Honour the end node's authored duration, falling back to 3s (§2.2).
+            const secs = parseFloat(nextNode.duration);
+            scheduleEndSession((secs > 0 ? secs : 3) * 1000);
+          }
+        } else { fadeAndEnd(); }
+      };
+      if (!nextNodeId) { fadeAndEnd(); return; }
+      if (mode === 'smooth') fadeTo(1, SCENE_FADE_SEC, goTo); else goTo();
+    }
+
+    // Schedule the end of the run once, after the end node has shown its content.
+    // Idempotent: a second call while one is pending is ignored (§2.2).
+    function scheduleEndSession(delayMs) {
+      if (endTimer || sessionEnding) return;
+      endTimer = setTimeout(() => { endTimer = null; fadeAndEnd(); }, delayMs);
+    }
+
+    // Fade to black over END_FADE_SEC before actually tearing the session down
+    // (spec ID:02_11 — "fade to black" over 3-5s at the very end of a scenario).
+    function fadeAndEnd() {
+      fadeTo(1, END_FADE_SEC, endSession);
+    }
+
+    // Ends the run whether it is a headset session or a flat preview. The old
+    // version only handled xrSession, so a flat run could never finish and never
+    // wrote its results file. Idempotent (§2.2): the render loop, the end timer and
+    // the exit affordance can all reach here, but the teardown must run exactly once.
+    function endSession() {
+      if (sessionEnding) return;
+      sessionEnding = true;
+      if (endTimer) { clearTimeout(endTimer); endTimer = null; }
+      if (xrSession) { xrSession.end(); return; }
+      if (flatPreview) onSessionEnd();
+    }
+
+    // === Render & Interaction Loop ===
+    function render() {
+      // §2.1 — clamp dt. THREE.Clock is reset at the start of each run, but a
+      // mid-run interruption (headset lifted off, system menu, backgrounding) still
+      // returns the whole gap as one dt on resume. Clamping to MAX_DT guarantees no
+      // single frame can advance the timeline by more than a frame's worth of time,
+      // so content in the middle of a run can never be silently skipped.
+      const dt = Math.min(clock.getDelta(), MAX_DT);
+      let currentTime = 0;
+
+      if (currentNode) {
+        const nodeHasVideo = !!currentNode.video;
+
+        // §4.2/§4.3 — hold the node timeline at 0 until the video has produced a real
+        // first frame (readyState >= HAVE_CURRENT_DATA). Starting the clock earlier
+        // ran timed overlays over a black, still-buffering sphere and could auto-skip
+        // a node before its clip ever played. A generous timeout declares a genuinely
+        // broken clip failed rather than hanging forever.
+        if (nodeHasVideo && !videoReady && !videoFailed) {
+          if ((performance.now() - videoLoadStart) / 1000 > VIDEO_LOAD_TIMEOUT) {
+            markVideoFailed();  // faster path when frames are flowing; timer is the backstop
+          } else {
+            // Still buffering: keep the timeline frozen, show the loading indicator,
+            // but keep the render + gaze loop alive so the play gate stays usable.
+            showLoading(true);
+            handleGazeInteractions(dt);
+            fallbackEnvironment.rotation.y += dt * 0.05;
+            renderer.render(scene, camera);
+            return;
+          }
+        }
+        if (videoReady) showLoading(false);
+
+        // ---- MONOTONIC SCENARIO CLOCK ----
+        // The clock is advanced by deltas and can only move forward: the video drives
+        // it while it genuinely progresses, and wall-clock takes over the moment it
+        // stalls, so a stalled/reset decoder can neither freeze nor rewind the
+        // timeline. (The old code read videoElement.currentTime as absolute truth.)
+        const hasVideo = nodeHasVideo && videoElement.readyState > 0;
+        let advanced = 0;
+        if (hasVideo && !videoElement.ended && !videoElement.paused) {
+          const vt = videoElement.currentTime;
+          if (vt > lastVideoTime + 0.001) { advanced = vt - lastVideoTime; videoStalledFor = 0; }
+          else { videoStalledFor += dt; }
+          lastVideoTime = vt;
+        } else {
+          videoStalledFor += dt;   // no video, blocked, stalled or past the end
+        }
+
+        if (advanced > 0) nodeTimer += advanced;
+        else if (videoStalledFor > VIDEO_STALL_GRACE) nodeTimer += dt;
+
+        // The clip is running now, so the manual play gate has done its job.
+        if (advanced > 0) clearPlayGate();
+
+        currentTime = nodeTimer;
+
+        // Toggle overlay visibility along the timeline
+        overlaysGroup.children.forEach(child => {
+          if (child.userData.isOverlay && child.userData.startTime !== undefined) {
+            child.visible = currentTime >= child.userData.startTime && currentTime <= child.userData.endTime;
+          }
+        });
+
+        // Narration (§1_12A/B) — fires once, at its authored start time.
+        if (!narrationPlayed && currentNode.narration && currentNode.narration.file &&
+            currentTime >= (currentNode.narration.startTime || 0)) {
+          narrationPlayed = true;
+          try { narrationAudio.currentTime = 0; narrationAudio.play(); } catch (e) {}
+        }
+
+        // Auto-advance / terminate. The always-present exit affordance, waypoints and
+        // the "hear again" button must NOT count as a pending answer, or a node could
+        // never auto-advance while any of them are on screen (§4.4, §1_13, §1_12C).
+        const choicesPending = activeChoices.some(c => c.userData.choiceData &&
+          !(c.userData.choiceData.__exit || c.userData.choiceData.__waypoint || c.userData.choiceData.__hearAgain));
+
+        // Termination: a video node ends on the real 'ended' event (or, for a video
+        // whose duration is unknown, never on a duration fallback — §4.3); a non-video
+        // node ends when its authored duration elapses.
+        let ended;
+        if (nodeHasVideo && !videoFailed) {
+          const vdur = videoElement.duration;
+          ended = videoElement.ended || (isFinite(vdur) && vdur > 0 && currentTime >= vdur);
+        } else {
+          ended = currentTime >= (parseFloat(currentNode.duration) || 10);
+        }
+
+        if (!choicesPending && ended) {
+          if (currentNode.defaultNext) {
+            selectChoice({ target: currentNode.defaultNext }, true); // auto_advance, self-guards
+          } else if (!isTransitioning) {
+            isTransitioning = true; // terminal node, no link → end instead of freezing
+            fadeAndEnd();
+          }
+        }
+      }
+
+      tickFade(dt);
+      handleGazeInteractions(dt);
+      fallbackEnvironment.rotation.y += dt * 0.05;
+      renderer.render(scene, camera);
+    }
+
+    function getVisibleChoices() {
+      return activeChoices.filter(c => c.visible && (c.parent ? c.parent.visible : true));
+    }
+
+    function handleGazeInteractions(dt) {
+      const visibleChoices = getVisibleChoices();
+
+      // (Re)arm whenever a choice appears that was not visible last frame (§4.1).
+      // Keyed on each mesh, so the answer choices appearing at questionTime re-arm
+      // even though the exit affordance was already on screen.
+      let appeared = false;
+      visibleChoices.forEach(c => { if (!c.userData._wasVisible) appeared = true; });
+      activeChoices.forEach(c => { c.userData._wasVisible = false; });
+      visibleChoices.forEach(c => { c.userData._wasVisible = true; });
+
+      if (visibleChoices.length === 0) {
+        armed = false; armTimer = 0; preArmedChoice = null;
+        gazeTimer = 0; lastIntersectedChoice = null;
+        updateGazeProgress(0);
+        return;
+      }
+      if (appeared) { armed = false; armTimer = 0; preArmedChoice = null; gazeTimer = 0; }
+
+      // Robust gaze ray: straight out of the camera's world orientation (XR-safe,
+      // no NDC/projection assumptions). recursive=false so progress rings (children
+      // of the choice meshes) are never the hit target.
+      camera.getWorldPosition(_gazeOrigin);
+      camera.getWorldQuaternion(_gazeQuat);
+      _gazeDir.set(0, 0, -1).applyQuaternion(_gazeQuat).normalize();
+      raycaster.set(_gazeOrigin, _gazeDir);
+
+      const intersects = raycaster.intersectObjects(visibleChoices, false);
+      const intersectedChoice = intersects.length > 0 ? intersects[0].object : null;
+
+      // Arming delay: choices are not yet selectable. A gaze may rest here, but the
+      // dwell timer does not start until arming completes.
+      if (!armed) {
+        armTimer += dt;
+        lastIntersectedChoice = intersectedChoice;
+        gazeTimer = 0;
+        if (armTimer >= GAZE_ARM_DELAY) {
+          armed = true;
+          // A choice already under the reticle at the instant of arming is "locked":
+          // it must be looked away from and re-entered before it can be selected.
+          preArmedChoice = intersectedChoice || null;
+        }
+        updateGazeProgress(0, intersectedChoice);
+        return;
+      }
+
+      // Release the re-entry lock as soon as the gaze moves off the locked choice.
+      if (preArmedChoice && intersectedChoice !== preArmedChoice) preArmedChoice = null;
+
+      if (intersectedChoice && intersectedChoice !== preArmedChoice) {
+        const threshold = intersectedChoice.userData.dwell || currentDwell;
+        if (lastIntersectedChoice === intersectedChoice) {
+          gazeTimer = Math.min(threshold, gazeTimer + dt);
+          updateGazeProgress(gazeTimer / threshold, intersectedChoice);
+          if (gazeTimer >= threshold) selectChoice(intersectedChoice.userData.choiceData);
+        } else {
+          gazeTimer = 0;
+          lastIntersectedChoice = intersectedChoice;
+          updateGazeProgress(0, intersectedChoice);
+        }
+      } else {
+        // No choice, or still resting on the locked pre-armed choice.
+        gazeTimer = 0;
+        lastIntersectedChoice = intersectedChoice;
+        updateGazeProgress(0, null);
+      }
+    }
+
+    function updateGazeProgress(progress, targetMesh = null) {
+      const p = Math.max(0, Math.min(1, progress));
+      const progressIndicator = reticle.getObjectByName('gazeProgress');
+      if (progressIndicator) {
+        const s = Math.max(0.001, p);
+        progressIndicator.scale.set(s, s, s);
+      }
+      activeChoices.forEach(child => {
+        if (child.material && child.material.color) {
+          if (child.userData.originalColor === undefined) child.userData.originalColor = child.material.color.getHex();
+          child.material.color.setHex(child === targetMesh ? 0x3b82f6 : child.userData.originalColor);
+        }
+        // Radial fill on the targeted choice itself (§4.1) — an unmistakable cue that
+        // a selection is building, so the learner can look away in time.
+        const ring = child.getObjectByName ? child.getObjectByName('progressRing') : null;
+        if (ring) {
+          if (child === targetMesh && p > 0.001) {
+            ring.visible = true;
+            if (ring.geometry) ring.geometry.dispose();
+            ring.geometry = new THREE.RingGeometry(0.34, 0.42, 44, 1, Math.PI / 2, -p * Math.PI * 2);
+          } else {
+            ring.visible = false;
+          }
+        }
+      });
+    }
+
+    // === Media Generators ===
+    function clearOverlays() {
+      while (overlaysGroup.children.length > 0) {
+        const child = overlaysGroup.children[0];
+        overlaysGroup.remove(child);
+        if (child.type === 'Group') child.children.forEach(c => disposeNode(c));
+        else disposeNode(child);
+      }
+      activeChoices = [];
+      gazeTimer = 0;
+      lastIntersectedChoice = null;
+    }
+
+    function disposeNode(child) {
+      // Choices carry a progressRing child (§4.1); dispose the whole subtree so a
+      // long run stepping through many nodes doesn't leak ring geometry/materials.
+      if (child.children) child.children.slice().forEach(disposeNode);
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (child.material.map) child.material.map.dispose();
+        child.material.dispose();
+      }
+    }
+
+    function createImagePlane(url, options = {}) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.src = url;
+        img.onload = () => {
+          const aspect = img.width / img.height;
+          const baseWidth = 4;
+          const scale = options.scale || 1;
+          const geo = new THREE.PlaneGeometry(baseWidth * aspect * scale, baseWidth * scale);
+          const tex = new THREE.Texture(img);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.needsUpdate = true;
+          const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
+          resolve(new THREE.Mesh(geo, mat));
+        };
+        img.onerror = () => resolve(null);
+      });
+    }
+
+    function createTextPlane(text, options = {}) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const logicWidth = options.width || 512;
+      const minHeight = options.height || 128;
+      const fontSize = options.fontSize || 32;
+      const fontWeight = options.fontWeight || 'normal';
+      const pixelRatio = 3;
+      const padding = 20;
+
+      // Wrap against the authored width FIRST, on the canvas's default (pre-resize)
+      // context, so the actual line count is known before we ever decide how tall
+      // to make the background — measureText reports logical units regardless of
+      // any later ctx.scale, so measuring now and drawing after resizing stays
+      // consistent. This is the actual fix for backgrounds not scaling with text:
+      // the old code always drew a fixed-height box and let long text (a multi-
+      // line narration caption, a long answer) spill out past its own edges.
+      ctx.font = `${fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      const words = String(text).split(' ');
+      let lines = [], line = '';
+      for (let n = 0; n < words.length; n++) {
+        let testLine = line + words[n] + ' ';
+        if (ctx.measureText(testLine).width > logicWidth - padding * 2 && n > 0) { lines.push(line); line = words[n] + ' '; }
+        else line = testLine;
+      }
+      lines.push(line);
+      const lineHeight = fontSize * 1.3;
+      // Never shrink below the caller's nominal height (a one-word answer still
+      // gets a comfortable minimum button size) but always grow to fit however
+      // many lines the actual text needs.
+      const logicHeight = Math.max(minHeight, lines.length * lineHeight + padding * 2.6);
+
+      // Resizing the canvas resets its entire 2D context (font, transform,
+      // everything) — this has to happen after measuring above, and font/align
+      // have to be reapplied below, or every draw call after the first would
+      // silently fall back to default (serif, black, left-aligned) text.
+      canvas.width = logicWidth * pixelRatio;
+      canvas.height = logicHeight * pixelRatio;
+      ctx.scale(pixelRatio, pixelRatio);
+
+      const textColor = options.textColor || 'white';
+      const backgroundColor = options.backgroundColor || 'rgba(0,0,0,0.5)';
+      const scale = options.scale || 1;
+
+      ctx.fillStyle = backgroundColor;
+      ctx.beginPath();
+      const radius = 16;
+      ctx.moveTo(radius, 0);
+      ctx.lineTo(logicWidth - radius, 0);
+      ctx.quadraticCurveTo(logicWidth, 0, logicWidth, radius);
+      ctx.lineTo(logicWidth, logicHeight - radius);
+      ctx.quadraticCurveTo(logicWidth, logicHeight, logicWidth - radius, logicHeight);
+      ctx.lineTo(radius, logicHeight);
+      ctx.quadraticCurveTo(0, logicHeight, 0, logicHeight - radius);
+      ctx.lineTo(0, radius);
+      ctx.quadraticCurveTo(0, 0, radius, 0);
+      ctx.closePath();
+      ctx.fill();
+
+      // Optional horizontal alignment (§5.1); defaults to centre so existing
+      // scenarios render unchanged.
+      const align = (options.align === 'left' || options.align === 'right') ? options.align : 'center';
+      const anchorX = align === 'left' ? padding : (align === 'right' ? logicWidth - padding : logicWidth / 2);
+      ctx.fillStyle = textColor;
+      ctx.font = `${fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      ctx.textAlign = align;
+      ctx.textBaseline = 'middle';
+
+      const startY = (logicHeight - (lines.length - 1) * lineHeight) / 2;
+      for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i].trim(), anchorX, startY + (i * lineHeight));
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
+      const geometry = new THREE.PlaneGeometry((logicWidth / 256) * scale, (logicHeight / 256) * scale);
+      const mesh = new THREE.Mesh(geometry, material);
+      // Exposed so callers stacking multiple boxes (the question + each choice)
+      // can space them using the box's REAL rendered height, not a guess.
+      mesh.userData.boxWidth = (logicWidth / 256) * scale;
+      mesh.userData.boxHeight = (logicHeight / 256) * scale;
+      return mesh;
+    }
+
+    // === Saved results (recovery) ===
+    function readSavedResults() {
+      try { return JSON.parse(localStorage.getItem('lxr_results') || '[]'); }
+      catch (e) { return []; }
+    }
+
+    function renderSavedResults() {
+      const host = document.getElementById('saved-results');
+      if (!host) return;
+      const saved = readSavedResults();
+      if (!saved.length) { host.innerHTML = ''; return; }
+      host.innerHTML =
+        '<div class="saved-title">Saved results on this headset (' + saved.length + ')</div>' +
+        '<button id="download-saved" class="link-btn">Download all again</button> ' +
+        '<button id="clear-saved" class="link-btn danger">Clear</button>';
+      document.getElementById('download-saved').addEventListener('click', downloadSavedResults);
+      document.getElementById('clear-saved').addEventListener('click', () => {
+        if (!confirm('Delete the results stored on this headset?')) return;
+        try { localStorage.removeItem('lxr_results'); } catch (e) {}
+        renderSavedResults();
+        updateStatus('Saved results cleared');
+      });
+    }
+
+    function downloadSavedResults() {
+      const saved = readSavedResults();
+      saved.forEach((entry, i) => {
+        setTimeout(() => {
+          try {
+            const blob = new Blob([JSON.stringify(entry.results, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = entry.fileName;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 4000);
+          } catch (e) {}
+        }, i * 350); // stagger — browsers drop rapid-fire simultaneous downloads
+      });
+      updateStatus('Re-downloading ' + saved.length + ' result file(s)');
+    }
+
+    function updateStatus(message, isError = false) {
+      statusElement.textContent = message;
+      statusElement.style.display = 'block';
+      statusElement.style.background = isError ? 'rgba(220, 38, 38, 0.95)' : 'rgba(17, 24, 39, 0.9)';
+      setTimeout(() => { statusElement.style.display = 'none'; }, isError ? 5000 : 3000);
+    }
+
+    init();
+  </script>
+</body>
+</html>
