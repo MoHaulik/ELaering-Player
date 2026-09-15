@@ -293,22 +293,42 @@ in the upload prompt (both flagged as noise for a real user).
   for its full width, fill reads alpha 128 — exactly the 50% the test
   requested. Both repos pushed.
 
+## Both open decisions — RESOLVED by Morten, 2026-09-15 late evening
+
+- **Video compression (01_08): ship as-is.** Confirmed explicitly: the
+  existing MediaRecorder-based `compressVideo()` — works today, basic
+  quality, no bitrate/resolution control — is what goes out. True
+  ffmpeg.wasm-grade transcoding is out of scope, not just for tonight but
+  as a decided "not now."
+- **User management (01_03/04): the access-code lock IS the answer**, not a
+  login system. Morten's own framing: you "Lock" a *build* (the exported
+  .zip), not the Builder app itself — set a code and the Player (headset or
+  computer) demands it before playing; leave it blank and the code screen
+  never appears at all, it just plays. This already existed (dock's lock
+  icon → `project.accessCode`, baked into the exported project.json, gated
+  in the Player's `attemptStart()`) — the only real gap against what he
+  described was that it accepted any string up to 12 characters instead of
+  a real 4-digit PIN. Fixed: digits-only, capped at 4, filtered live as you
+  type, clamped again in `sanitizeProject()` for anything loaded from an
+  older export. Copy in the modal now says plainly what it does. Pushed to
+  both repos, verified: mixed-string input filters to its first 4 digits,
+  export summary reflects it, clearing it reverts to "starts freely."
+
+Also fixed tonight, unrelated to either decision: the "My 360° Scenario"
+default project title/header — renamed to "Immersive Learning" (no "my",
+no format-specific wording, since 180° is equally supported).
+
 ## Where things stand — end of day, 2026-09-15
 
-No known unbuilt features, no known bugs, nothing waiting on an access grant.
-Both repos are pushed and green. What's left is entirely one of two kinds:
-
-1. **Genuinely needs Morten** — not blocked, just his call, not touched
-   further without a decision: user management (01_03/04) and true video
-   compression (01_08), both flagged "orange" in the spec itself, both
-   already documented with a working (if imperfect) fallback in place.
-2. **Genuinely needs a real headset** — everything built today (stereoscopic
-   rendering, the export download, the full waypoint pipeline) is verified as
-   thoroughly as this environment allows (pixel reads, real video decode,
-   scripted multi-angle tests, direct code-path triggers), but a Quest 3
-   spot-check is the only way to close the loop on "does this actually look
-   and feel right in a headset" — that's Morten's or a real device's to do,
-   not something further local testing can substitute for.
+No known unbuilt features, no known bugs, no open product decisions, nothing
+waiting on an access grant. Both repos are pushed and green. The one thing
+left is **genuinely needs a real headset**: everything built today
+(stereoscopic rendering, the export download, the full waypoint pipeline, the
+access-code gate) is verified as thoroughly as this environment allows (pixel
+reads, real video decode, scripted multi-angle tests, direct code-path
+triggers), but a Quest 3 spot-check is the only way to close the loop on
+"does this actually look and feel right in a headset" — that's Morten's or a
+real device's to do, not something further local testing can substitute for.
 
 If picking this up cold: read this file top to bottom before assuming
 anything is either done or missing — several early status calls in this
