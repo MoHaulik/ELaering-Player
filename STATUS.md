@@ -201,3 +201,48 @@ in the upload prompt (both flagged as noise for a real user).
   flagging that export should be spot-checked once from a real browser (or
   Morten's own machine) to be fully certain, since that's the one part of this
   I can't 100% verify from inside this tool.
+- **2026-09-15, completeness audit**: re-extracted the kravspecifikation fresh
+  (not from cache) and re-grepped both repos line-by-line against every
+  requirement and every meeting-note item. Everything checked out except one
+  previously-unflagged gap: **spec ID:01_14A's text overlay ("informationstekst
+  med en ramme... semi-transparent") has no visible border/frame at all** (the
+  Player's `createTextPlane` only ever `ctx.fill()`s the background, never
+  `ctx.stroke()`s one), **and the Builder's background-color picker
+  (`<input type=color>`) has no alpha channel, so any color an author actually
+  sets is fully opaque** — "semi-transparent" is only true of a hardcoded
+  default that's never reachable once a color is picked. Not yet fixed —
+  reported to Morten, awaiting a decision on priority.
+- **2026-09-15, real bugs Morten found testing the live deployed Builder**:
+  three fixes, all pushed.
+  - **Node deletion (top priority — real blocker)**: root cause was a MacBook-
+    specific bug, not a missing feature — the keyboard shortcut only listened
+    for `e.key === 'Delete'`, but a MacBook's built-in keyboard has no forward-
+    delete key at all (the key labelled "delete" sends `Backspace`), so the
+    shortcut silently did nothing on that hardware. Fixed (now listens for
+    both), plus added a direct trash icon on the node itself (hover/selected,
+    top-right corner) since the only other path was a Delete button three
+    scrolls deep in the Scene editor sheet. All entry points share one
+    `confirm()` guard; deletion cascades to unlink every choice/waypoint/
+    defaultNext pointing at the removed node — verified with a real dangling-
+    reference test, not just a code read.
+  - **Embedded preview**: the Builder already embedded the real Player in an
+    iframe over postMessage (inherited from the same pattern LaerbarXR-Builder
+    uses, read-only-checked as the reference) — genuine infrastructure, not a
+    stub — but `_sendPreviewLoad()` was sending `{project, startNodeId}` while
+    the Player's own `lxrPreviewLoad` handler reads `{scenario, assets}`.
+    Neither field matched, so the message silently no-opped and the iframe just
+    sat on the Player's raw upload screen forever — which is exactly what read
+    as "just linking to the player." Fixed the payload shape to match; verified
+    end-to-end with a real attached video (not just confirming a message goes
+    out) — the embedded preview now shows the Player's actual in-scene chrome,
+    the video genuinely decodes and plays, and the scenario correctly auto-ends
+    when content runs out. Real production Player code, not a reimplementation;
+    mouse-look reuses the Player's own existing flatPreview control unchanged.
+  - **Infinite canvas grid**: the dot pattern was a `background-image` on
+    `#canvas` itself, which had a fixed 6000×4000px world-space size — panning
+    or zooming out far enough showed a hard edge. Moved the pattern onto a new
+    always-viewport-sized, untransformed layer whose background-position/-size
+    are recomputed from the same pan/zoom state every `applyView()` call, so it
+    tiles infinitely via ordinary CSS background repetition. Verified by
+    panning to world coordinates far outside the old fixed box at both zoom
+    extremes — dots fill edge-to-edge every time.
