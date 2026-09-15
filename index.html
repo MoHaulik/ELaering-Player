@@ -167,7 +167,7 @@
     // THREE comes from vendor/three.min.js (classic script) — see the note in <head>.
 
     // Core 3D
-    let camera, scene, renderer, xrSession = null;
+    let camera, scene, renderer, xrSession = null, contentGroup;
     let videoElement, videoTexture, videoMaterial, videoMesh, fallbackEnvironment;
     let videoMeshL, videoMeshR; // stereo (sbs/tb) eye-exclusive meshes — layers 1/2, see applyVideoProjection
     let raycaster, reticle, clock;
@@ -437,6 +437,15 @@
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
       scene.add(camera);
 
+      // Everything the learner looks AT (video, overlays, waypoints, the fallback
+      // wireframe) lives under this group, kept separate from the camera. Auto-
+      // reorientation on scene arrival (spec ID:02_08C) rotates this group around Y
+      // so the authored "start position" lands wherever the learner is already
+      // facing physically — the camera's own transform stays exactly as tracked, so
+      // gaze raycasting (which reads camera world direction) needs no changes at all.
+      contentGroup = new THREE.Group();
+      scene.add(contentGroup);
+
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -449,7 +458,7 @@
       const envGeo = new THREE.SphereGeometry(20, 32, 32);
       const envMat = new THREE.MeshBasicMaterial({ color: 0x1f2937, wireframe: true, transparent: true, opacity: 0.1 });
       fallbackEnvironment = new THREE.Mesh(envGeo, envMat);
-      scene.add(fallbackEnvironment);
+      contentGroup.add(fallbackEnvironment);
 
       videoElement = document.getElementById('video');
       videoTexture = new THREE.VideoTexture(videoElement);
@@ -461,7 +470,7 @@
       videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.FrontSide });
       videoMesh = new THREE.Mesh(makeProjectionGeometry('360'), videoMaterial);
       videoMesh.visible = false;
-      scene.add(videoMesh);
+      contentGroup.add(videoMesh);
 
       // Stereo (SBS/top-bottom) rendering: two extra meshes sharing the same video
       // texture, each cropped to one eye's half via UV and placed on a WebXR-only
@@ -475,12 +484,12 @@
       videoMeshL = new THREE.Mesh(makeProjectionGeometry('360'), videoMaterial);
       videoMeshL.visible = false;
       videoMeshL.layers.set(1);
-      scene.add(videoMeshL);
+      contentGroup.add(videoMeshL);
 
       videoMeshR = new THREE.Mesh(makeProjectionGeometry('360'), videoMaterial);
       videoMeshR.visible = false;
       videoMeshR.layers.set(2);
-      scene.add(videoMeshR);
+      contentGroup.add(videoMeshR);
 
       // Camera-locked black fade plane (spec ID:02_09/10/11) — always in front, opacity 0 until used.
       const fadeGeo = new THREE.PlaneGeometry(4, 4);
@@ -491,7 +500,7 @@
       fadeMesh.visible = false;
       camera.add(fadeMesh);
 
-      scene.add(overlaysGroup);
+      contentGroup.add(overlaysGroup);
       setupGazeInteraction();
 
       // WebXR capability gate
@@ -1122,6 +1131,29 @@
       videoMeshL.visible = videoMeshR.visible = wantVideo && stereoActive;
     }
 
+    // Auto-reorientation on scene arrival (spec ID:02_08C): "the start position
+    // adjusts automatically so it's always correctly facing the learner's
+    // perspective." We can't move the learner's real head, so instead we rotate
+    // the CONTENT around them — whatever direction they happen to be physically
+    // facing when a node loads becomes "forward" relative to that node's authored
+    // start-yaw (Builder's compass dial, 0-359°, same 0°=forward/clockwise-right
+    // convention as the overlay-position yaw used elsewhere in this file).
+    //
+    // Derivation: a point authored at content-yaw Y sits, before any contentGroup
+    // rotation, at direction (sin Y, 0, -cos Y). Rotating contentGroup by R moves
+    // it to (sin(Y-R), 0, -cos(Y-R)) — i.e. effective yaw becomes Y-R. The camera's
+    // own forward direction at camera.rotation.y = θ is (-sin θ, 0, -cos θ), which
+    // in the same (sin a, 0, -cos a) parametrization is a = -θ. Setting Y-R = -θ
+    // gives R = Y + θ: rotate content by the authored yaw PLUS the camera's
+    // current yaw, so the authored direction lands exactly on the camera's
+    // current forward regardless of which way the learner happens to be facing.
+    const _reorientEuler = new THREE.Euler();
+    function orientContentToStart(node) {
+      const startYawRad = THREE.MathUtils.degToRad((node && node.startYaw) || 0);
+      _reorientEuler.setFromQuaternion(camera.quaternion, 'YXZ');
+      contentGroup.rotation.y = startYawRad + _reorientEuler.y;
+    }
+
     // Fade-to-black driver, ticked from render(). onDone fires once, at completion.
     function fadeTo(target, dur, onDone) {
       fadeMesh.visible = true;
@@ -1199,6 +1231,7 @@
         session_time_sec: +((performance.now() - sessionStartTime) / 1000).toFixed(2)
       });
       if (previewEmbedMode) { try { parent.postMessage({ type: 'lxrPreviewNode', nodeId: node.id }, '*'); } catch (_) {} }
+      orientContentToStart(node);
       clearOverlays();
       nodeTimer = 0;
       lastVideoTime = 0;
