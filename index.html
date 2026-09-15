@@ -169,6 +169,7 @@
     // Core 3D
     let camera, scene, renderer, xrSession = null;
     let videoElement, videoTexture, videoMaterial, videoMesh, fallbackEnvironment;
+    let videoMeshL, videoMeshR; // stereo (sbs/tb) eye-exclusive meshes — layers 1/2, see applyVideoProjection
     let raycaster, reticle, clock;
     let xrSupported = false;
     let referenceSpaceType = 'local';
@@ -248,6 +249,8 @@
     const narrationAudio = new Audio();
     let narrationPlayed = false;
     let currentProjection = '360';
+    let currentStereo = 'mono';
+    let videoWantsVisible = false; // tracks intent; syncStereoVisibility() resolves it to the right mesh(es)
 
     // Clamp an author-supplied dwell time to a sane range; returns 0 for anything
     // non-numeric so the caller's `|| default` chain falls through.
@@ -459,6 +462,25 @@
       videoMesh = new THREE.Mesh(makeProjectionGeometry('360'), videoMaterial);
       videoMesh.visible = false;
       scene.add(videoMesh);
+
+      // Stereo (SBS/top-bottom) rendering: two extra meshes sharing the same video
+      // texture, each cropped to one eye's half via UV and placed on a WebXR-only
+      // render layer. Three.js's WebXRManager gives each eye's camera layer 0 (default,
+      // shared) PLUS layer 1 (left eye) or layer 2 (right eye) — so a mesh on layer 1
+      // ONLY renders for the left eye, layer 2 ONLY for the right, and layer-0 objects
+      // (all overlays/text/images) render identically to both, which is exactly what
+      // keeps overlays from ever splitting or doubling. The flat desktop camera has no
+      // extra layers enabled, so these two meshes are naturally invisible outside XR —
+      // applyVideoProjection() falls back to showing the plain mono mesh there instead.
+      videoMeshL = new THREE.Mesh(makeProjectionGeometry('360'), videoMaterial);
+      videoMeshL.visible = false;
+      videoMeshL.layers.set(1);
+      scene.add(videoMeshL);
+
+      videoMeshR = new THREE.Mesh(makeProjectionGeometry('360'), videoMaterial);
+      videoMeshR.visible = false;
+      videoMeshR.layers.set(2);
+      scene.add(videoMeshR);
 
       // Camera-locked black fade plane (spec ID:02_09/10/11) — always in front, opacity 0 until used.
       const fadeGeo = new THREE.PlaneGeometry(4, 4);
@@ -1029,7 +1051,7 @@
 
     // 180° footage (spec ID:01_07/02_?): a forward-facing half-dome instead of a full
     // sphere, so a 180° equirectangular clip isn't stretched around the whole circle.
-    function makeProjectionGeometry(proj) {
+    function makeProjectionGeometry(proj, stereo, eye) {
       // phiStart=PI centers the half-dome on the camera's default forward
       // direction (-Z) — verified empirically via raycasts from the origin,
       // since three.js's phi parameterization isn't the intuitive "0 = forward".
@@ -1037,14 +1059,67 @@
         ? new THREE.SphereGeometry(15, 64, 32, Math.PI, Math.PI, 0, Math.PI)
         : new THREE.SphereGeometry(15, 64, 32, 0, Math.PI * 2, 0, Math.PI);
       geo.scale(-1, 1, 1);
+      if (stereo === 'sbs' || stereo === 'tb') applyStereoUV(geo, stereo, eye || 'left');
       return geo;
     }
-    function applyVideoProjection(proj) {
+
+    // Crops a projection sphere's UVs to one eye's half of a packed stereo frame.
+    // sbs (side-by-side): left eye = left half of the frame (u 0..0.5), right eye =
+    // right half (u 0.5..1) — u isn't affected by texture flipY, so this is the plain,
+    // unambiguous "left eye is physically on the left" convention.
+    // tb (top-bottom / over-under): convention is frame TOP half = left eye. This
+    // renderer's v=0 renders at the sphere's "up" and samples the SOURCE IMAGE'S
+    // BOTTOM row (texture.flipY defaults to true) — verified empirically by rendering
+    // a red-top/blue-bottom test texture and reading back the pixel the camera saw
+    // looking straight up (came back blue, i.e. v=0 = image-bottom). So the image's
+    // top half (left eye) is v 0.5..1, and the bottom half (right eye) is v 0..0.5.
+    function applyStereoUV(geo, mode, eye) {
+      const uv = geo.attributes.uv;
+      if (mode === 'sbs') {
+        const offset = eye === 'right' ? 0.5 : 0;
+        for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * 0.5 + offset);
+      } else {
+        const offset = eye === 'left' ? 0.5 : 0;
+        for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * 0.5 + offset);
+      }
+      uv.needsUpdate = true;
+    }
+
+    function applyVideoProjection(proj, stereo) {
       proj = proj === '180' ? '180' : '360';
-      if (proj === currentProjection) return;
+      stereo = (stereo === 'sbs' || stereo === 'tb') ? stereo : 'mono';
+      if (proj === currentProjection && stereo === currentStereo) return;
       currentProjection = proj;
+      currentStereo = stereo;
+
       videoMesh.geometry.dispose();
       videoMesh.geometry = makeProjectionGeometry(proj);
+
+      videoMeshL.geometry.dispose();
+      videoMeshR.geometry.dispose();
+      if (stereo === 'mono') {
+        // Reuse the plain full-frame geometry so there's nothing to build per eye.
+        videoMeshL.geometry = makeProjectionGeometry(proj);
+        videoMeshR.geometry = makeProjectionGeometry(proj);
+      } else {
+        videoMeshL.geometry = makeProjectionGeometry(proj, stereo, 'left');
+        videoMeshR.geometry = makeProjectionGeometry(proj, stereo, 'right');
+      }
+      syncStereoVisibility();
+    }
+
+    // Reconciles which mesh(es) are actually visible against (a) whether a video is
+    // currently meant to be showing at all and (b) whether we're in an active XR
+    // stereo session. Flat/desktop preview always uses the mono mesh (layer 0) —
+    // videoMeshL/R live on XR-only layers so a flat camera never sees them, but we
+    // still keep the mono mesh authoritative there rather than relying on that by
+    // accident. Call this whenever visibility, stereo mode, or the XR session state
+    // might have changed — it's cheap and idempotent.
+    function syncStereoVisibility() {
+      const wantVideo = videoWantsVisible;
+      const stereoActive = currentStereo !== 'mono' && renderer.xr.isPresenting;
+      videoMesh.visible = wantVideo && !stereoActive;
+      videoMeshL.visible = videoMeshR.visible = wantVideo && stereoActive;
     }
 
     // Fade-to-black driver, ticked from render(). onDone fires once, at completion.
@@ -1069,7 +1144,8 @@
     function playVideo(src) {
       videoElement.src = src;
       videoElement.loop = false;
-      videoMesh.visible = true;
+      videoWantsVisible = true;
+      syncStereoVisibility();
       const p = videoElement.play();
       if (p && p.catch) p.catch(() => showPlayGate());
     }
@@ -1138,7 +1214,8 @@
       currentDwell = clampDwell(node.gazeDwellSec) || clampDwell(sessionData.gazeDwellSec) || GAZE_TIME_THRESHOLD;
 
       videoElement.pause();
-      videoMesh.visible = false;
+      videoWantsVisible = false;
+      syncStereoVisibility();
       narrationAudio.pause();
       narrationPlayed = false;
       showLoading(!!node.video);   // show the buffering indicator only for video nodes
@@ -1149,7 +1226,7 @@
           videoAsset = sessionData.assets.videos.find(v => v.id === node.video);
           if (!videoSrc && videoAsset) videoSrc = assetCache[videoAsset.id] || assetCache[videoAsset.name];
         }
-        applyVideoProjection(videoAsset && videoAsset.projection);
+        applyVideoProjection(videoAsset && videoAsset.projection, videoAsset && videoAsset.stereo);
         if (node.narration && node.narration.file && assetCache[node.narration.file]) {
           narrationAudio.src = assetCache[node.narration.file];
         } else {
@@ -1519,6 +1596,13 @@
       // so content in the middle of a run can never be silently skipped.
       const dt = Math.min(clock.getDelta(), MAX_DT);
       let currentTime = 0;
+
+      // Re-checked every frame (cheap: a couple of booleans + mesh.visible sets) rather
+      // than only at the call sites that change stereo/visibility state, because
+      // renderer.xr.isPresenting can flip asynchronously relative to when a video
+      // actually starts playing — this makes the mesh selection self-correcting
+      // regardless of that timing.
+      syncStereoVisibility();
 
       if (currentNode) {
         const nodeHasVideo = !!currentNode.video;
