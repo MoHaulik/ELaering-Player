@@ -277,3 +277,40 @@ in the upload prompt (both flagged as noise for a real user).
   B's distinct asset, confirming waypoint targets survive the postMessage
   payload and resolve correctly through the Player's real navigation code, not
   a simplified stand-in. No code change needed — this was already correct.
+- **2026-09-15, late — text-overlay frame/transparency gap closed (the one
+  open item from the completeness audit)**: Builder now has a real
+  "Background opacity" slider (10-100%, default 90) per text overlay,
+  storing `t.bgAlpha`, since `<input type=color>` has no alpha channel of its
+  own — that was the actual reason "semi-transparent" was unreachable before.
+  Player composes that with the plain hex color into a real `rgba()` via a new
+  `hexToRgba()` helper, and `createTextPlane` gained an opt-in `border` option
+  that strokes the same shape at full opacity in the overlay's own hue — a
+  frame around a translucent fill, exactly what spec ID:01_14A asks for.
+  Opt-in specifically so every other `createTextPlane` caller (choice
+  buttons, exit affordance, "hear again", waypoint captions) keeps its
+  existing look untouched. Verified with a direct pixel read of the canvas
+  the texture is built from (not a screenshot): frame band reads alpha 255
+  for its full width, fill reads alpha 128 — exactly the 50% the test
+  requested. Both repos pushed.
+
+## Where things stand — end of day, 2026-09-15
+
+No known unbuilt features, no known bugs, nothing waiting on an access grant.
+Both repos are pushed and green. What's left is entirely one of two kinds:
+
+1. **Genuinely needs Morten** — not blocked, just his call, not touched
+   further without a decision: user management (01_03/04) and true video
+   compression (01_08), both flagged "orange" in the spec itself, both
+   already documented with a working (if imperfect) fallback in place.
+2. **Genuinely needs a real headset** — everything built today (stereoscopic
+   rendering, the export download, the full waypoint pipeline) is verified as
+   thoroughly as this environment allows (pixel reads, real video decode,
+   scripted multi-angle tests, direct code-path triggers), but a Quest 3
+   spot-check is the only way to close the loop on "does this actually look
+   and feel right in a headset" — that's Morten's or a real device's to do,
+   not something further local testing can substitute for.
+
+If picking this up cold: read this file top to bottom before assuming
+anything is either done or missing — several early status calls in this
+document were corrected later after actually reading the code or testing
+live, so trust the latest entry over an earlier one where they conflict.
