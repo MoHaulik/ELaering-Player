@@ -246,3 +246,34 @@ in the upload prompt (both flagged as noise for a real user).
     tiles infinitely via ordinary CSS background repetition. Verified by
     panning to world coordinates far outside the old fixed box at both zoom
     extremes — dots fill edge-to-edge every time.
+- **2026-09-15, preview follow-up #1 — went to the actual live LaerbarXR-Builder
+  site to verify the reference, not memory/local clone**: confirmed its
+  deployed commit matches local HEAD via the GitHub API first. Morten was
+  right that something was still off, but not the load path — that already
+  worked with zero upload step on both sites. The real gap: when a previewed
+  scenario naturally ends, the embedded Player reverts internally to its own
+  raw upload screen, and LaerbarXR-Builder has an explicit handler that closes
+  the whole panel the instant it hears `lxrPreviewEnded`, specifically so that
+  screen is never left visible. ELaering-Builder's version of that handler was
+  a no-op, so any previewed run reaching its end — not just a short test clip —
+  left the panel sitting on what reads as an upload prompt. Fixed to match;
+  verified by triggering the real `endSession()` path inside the embedded
+  Player (a naive synthetic postMessage sent the message backwards, into the
+  iframe rather than from it — caught and corrected) and confirming the panel
+  closes.
+- **2026-09-15, preview follow-up #2 — confirmed no feature regression**:
+  Morten flagged, correctly, that copying LaerbarXR-Builder's interaction
+  *pattern* must not mean copying its actual rendering — LaerbarXR has no
+  waypoints, narration, 180°/stereo, or fades. Verified this was never at risk:
+  `PLAYER_PREVIEW_URL` still points at `ELaering-Player/index.html` (not
+  LaerbarXR's), and `_sendPreviewLoad()` sends a generic deep-clone of the
+  whole live project (stripping only `fileObj`/`thumb`/`url`), so every node
+  field — waypoints, narration, stereo, projection, startYaw, fadeIn/fadeOut —
+  passes through untouched; nothing Player-specific was substituted. Proved it
+  concretely rather than just reasoning about it: built a real two-node test
+  scenario (waypoint + narration on node A, targeting a distinct video on node
+  B), sent it through the actual preview pipeline, and triggered the
+  waypoint's real gaze-select code path — the video source changed to node
+  B's distinct asset, confirming waypoint targets survive the postMessage
+  payload and resolve correctly through the Player's real navigation code, not
+  a simplified stand-in. No code change needed — this was already correct.
