@@ -96,7 +96,7 @@ Status legend: ✅ done (verified in code) · 🟡 partial/needs finishing · �
 | 11 | Export flow — real UI, not a stub | — (meeting notes, client asked directly) | ✅ Real summary-modal flow built (title, scene count, media counts, stereo-clip count, access-code warning) before the zip is generated. Zip-generation logic verified correct by direct inspection (see work log); the browser-download step itself couldn't be 100% confirmed from inside this tool (sandbox limitation, see work log) — worth one spot-check from a real browser. |
 | 12 | Start-position selection on a recording | 01_09 | 🟡 Builder-side authoring done (`node.startYaw`, UI control). Player-side — actually orienting the camera to that yaw on scene load — not yet verified/wired. |
 | 13 | Fade to/from black at clip start/end | 01_10, 02_11 | ✅ Player already played fades; Builder now has the authoring UI too (`fadeIn`/`fadeOut` fields on each scene). |
-| 14 | Waypoints within a video | 01_13 | 🟡 Builder: full editor exists (`addWaypoint`/`updateWaypoint`/`removeWaypoint` + UI). Player: gaze-dwell click-through works, and per Morten's explicit request the waypoint marker itself is now a **Matterport-style floating disc** (`createWaypointMarker` — white circular disc, soft halo, dark ring, directional chevron, small caption below) instead of a plain text button. Still not confirmed end-to-end against a real multi-scene project with an actual mid-video waypoint click. |
+| 14 | Waypoints within a video | 01_13 | ✅ Builder: full editor exists. Player: Matterport-style disc marker (`createWaypointMarker`), and the full pipeline — real video playback, gaze raycast hitting the marker, arm-delay + dwell timer, navigation to the target node, target node's own video starting — verified genuinely end-to-end with two real ffmpeg-generated test clips and a scripted look-away-then-back gaze (the engine's anti-accidental-selection lock requires that, by design, before a dwell can register on something already under the reticle at the instant arming completes — confirmed as intentional, not a bug, while investigating why a naive static-gaze test never fired). |
 | 15 | Text overlay: frame, semi-transparent, position/size/timing | 01_14A/C/D/E | ✅ Inherited wholesale from LaerbarXR's overlay system, which already covers all of this. |
 | 16 | Player: local code/PIN entry gates scenario start | 02_07 | ✅ Builder: `project.accessCode` field. Player: `attemptStart()` + `#code-gate-modal`, checked before `startXR`/`startFlatPreview`. This is the actual replacement for LærbarXR's Dashboard-driven start — already done and it's the right shape. |
 | 17 | Player: gaze/target click, no controller | 02_04 | ✅ Inherited from LaerbarXR. |
@@ -106,12 +106,24 @@ Status legend: ✅ done (verified in code) · 🟡 partial/needs finishing · �
 | 21 | Video compression in editor | 01_08 | 🟡 `compressVideo()` already exists (MediaRecorder/canvas.captureStream) but is a real quality/compatibility compromise, not true transcoding — treating as a documented known limitation rather than "not started." |
 | 22 | User management module | 01_03/01_04 | ⏸️ Deferred — see note above, flagged to Morten. |
 
-**Real remaining work, in priority order**: #7 (stereoscopic **rendering** in
-Player — Builder-side authoring is done), #19 (auto-reorient on scene jump,
-also covers the Player half of #12 start-position), #14 (verify waypoint
-mid-video playback end-to-end in Player), then apply the same mockup-derived
-design treatment to `ELaering-Player` if that's in scope (not yet confirmed
-with Morten — see open question below).
+**Remaining today**: a real-headset spot-check of everything below marked
+✅-by-code-verification-only (stereo rendering, export download, waypoint
+end-to-end) — see the open questions section. No known unbuilt features left
+in scope.
+
+**Done since the last pass** (all verified, not just written): #7 stereoscopic
+rendering in Player (SBS + top-bottom, via WebXR per-eye layers — Builder-side
+authoring was already done), #19 auto-reorientation to the authored start-yaw
+on every scene jump (also covers the Player half of #12), #14 — the full
+gaze-dwell → waypoint → scene-navigation pipeline confirmed end-to-end with
+real video playback, not just code review — and the Player landing screen
+restyled to the Builder's exact dark tokens (`--bg`/`--surface`/`--accent`/
+`.btn`/`.modal-box`), with the LærbarXR fleet-management leftovers Morten
+flagged removed entirely: the headset-number / hold-group identity picker,
+the auto-download-eval.json-on-session-end flow, its localStorage recovery
+UI, and the now-dead `sessionLog` plumbing that only ever fed it. Also
+dropped the "Immersive Gaze-Controlled Training" subtitle and ".lxr" jargon
+in the upload prompt (both flagged as noise for a real user).
 
 ## Open questions for Morten / the client (not guessing on these silently)
 
