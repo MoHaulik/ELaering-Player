@@ -68,55 +68,80 @@ uncertainty:
   pre-compresses source footage before import, or a follow-up ffmpeg.wasm
   integration later).
 
+## ⚠️ Correction — a prior session already built most of this
+
+The first version of this table (written before I'd read the actual `index.html`
+files, only from Morten's brief + the spec) assumed a near-empty starting point.
+That was wrong. Once `ELaering-Builder`/`ELaering-Player` were pointed at the
+correct `origin/main` (see repo hygiene above), reading the real code showed a
+prior session had already built most of the feature list — properly, not as
+stubs. Corrected against the actual code below (line numbers as of 2026-09-15).
+
 ## Today's build list
 
-Status legend: ⬜ not started · 🟡 in progress · ✅ done · ⏸️ deferred (documented, not silently skipped)
+Status legend: ✅ done (verified in code) · 🟡 partial/needs finishing · ⬜ not started · ⏸️ deferred (documented, not silently skipped)
 
 | # | Item | Spec ID(s) | Status |
 |---|---|---|---|
-| 1 | No dashboard — builder + player only | (platform shape) | ⬜ |
-| 2 | New, sleeker builder UX (from Mockup design) | 01_05 | ⬜ |
-| 3 | 180° video support (builder + player) | 01_07 | ⬜ |
-| 4 | Voice-over / narration support | 01_12A/B/C, 01_14B | ⬜ |
-| 5 | Offline export zip (confirmed local-only) + online-hostable player | (client Q confirmed) | ⬜ |
-| 6 | Background colour toggle (black/white/grey, persisted) | — (meeting notes) | ⬜ |
-| 7 | Stereoscopic video vs. text-overlay render-order conflict | — (meeting notes, client concern) | ⬜ |
-| 8 | Freely-repositionable branch nodes on canvas (visual only, persisted) | — (meeting notes) | ⬜ |
-| 9 | Zoom control (visible %, independent of browser zoom) | — (meeting notes) | ⬜ |
-| 10 | Project switcher / tabs near project name | — (meeting notes) | ⬜ |
-| 11 | Export flow — real UI, not a stub | — (meeting notes, client asked directly) | ⬜ |
-| 12 | Start-position selection on a recording | 01_09 | ⬜ |
-| 13 | Fade to/from black at clip start/end | 01_10, 02_11 | ⬜ |
-| 14 | Waypoints within a video (distinct from end-of-clip branch choice?) | 01_13 | ⬜ |
-| 15 | Text overlay: frame, semi-transparent, position/size/timing | 01_14A/C/D/E | ⬜ |
-| 16 | Player: local code/PIN entry gates scenario start (replaces Dashboard) | 02_07 | ⬜ |
-| 17 | Player: gaze/target click, no controller | 02_04 | ⬜ |
-| 18 | Player: Kiosk mode, no Meta account required | 02_05, 02_06 | ⬜ |
-| 19 | Player: jump between scene positions, auto-reorient on arrival | 02_08A/B/C | ⬜ |
-| 20 | Player: smooth-fade vs. direct-cut transition, selectable | 02_09, 02_10 | ⬜ |
-| 21 | Video compression in editor | 01_08 | ⏸️ deferred — see note above |
-| 22 | User management module | 01_03/01_04 | ⏸️ deferred — see note above, flagged to Morten |
+| 1 | No dashboard — builder + player only | (platform shape) | ✅ Player has zero relay/heartbeat/dashboard code — confirmed no `fetch(` calls exist at all. Replaced by the local code-gate (#16). |
+| 2 | New, sleeker builder UX (from Mockup design) | 01_05 | 🟡 Current Builder is a working dark reskin of the LaerbarXR layout (top toolbar + left inspector), not yet the Mockup's bottom-dock/card-flow design. The Mockup itself is **UI-only — no real logic wired to it at all** (fake hardcoded nodes, Undo/Export buttons with no click handlers, nodes aren't draggable). Decision: port the Mockup's visual language into the *working* Builder incrementally rather than risk a full rip-and-replace that could leave it non-functional — see decision note below. |
+| 3 | 180° video support (builder + player) | 01_07 | ✅ Builder: `setVideoProjection()`, per-asset `projection` field. Player: `makeProjectionGeometry()`/`applyVideoProjection()` (half-dome vs full sphere). |
+| 4 | Voice-over / narration support | 01_12A/B/C, 01_14B | ✅ Builder: `node.narration` model, `updateNarration()`, editor UI. Player: `narrationAudio`, "Hear again" replay button. |
+| 5 | Offline export zip + online-hostable player | (client Q confirmed) | ✅ Export is a local zip (same JSZip pipeline as LærbarXR, no cloud dependency). Player has zero network dependency (#1), so it's equally valid opened from a local file or hosted on GitHub Pages — both delivery modes already just work. |
+| 6 | Background colour toggle (black/white/grey, persisted) | — (meeting notes) | ⬜ Not found anywhere in either app. |
+| 7 | Stereoscopic video support + text-overlay conflict | — (meeting notes, client concern) | ⬜ **Bigger than it looked**: zero matches for "stereo" anywhere in either app — stereoscopic playback isn't built at all yet, so the client's concern is about a feature that doesn't exist rather than a rendering-order bug in an existing one. Real 180° VR footage is commonly captured as stereo pairs, so this is worth building properly, not skipping. |
+| 8 | Freely-repositionable branch nodes on canvas | — (meeting notes) | ✅ Nodes are already draggable (`startDrag`/`onDrag`, inherited from LaerbarXR) and `x`/`y` are already part of the persisted/exported node data — this looks like it already satisfies the client's ask (visual repositioning only, not touching the actual connections). Will spot-check, not rebuild. |
+| 9 | Zoom control (visible %, independent of browser zoom) | — (meeting notes) | ✅ Already present (`.zoom-label` / `zoomBy`), inherited from LaerbarXR. |
+| 10 | Project switcher / tabs near project name | — (meeting notes) | ⬜ Not found. |
+| 11 | Export flow — real UI, not a stub | — (meeting notes, client asked directly) | 🟡 Same single-button export as LaerbarXR's reference — functional, but not the presentable flow the client asked to see. |
+| 12 | Start-position selection on a recording | 01_09 | ⬜ Not found in Builder or Player. |
+| 13 | Fade to/from black at clip start/end | 01_10, 02_11 | 🟡 Player already plays fades (`fadeTo`/`tickFade`, wired into `selectChoice` and end-of-scenario). Builder has **no UI to author the fade timing** — needs a control added so it's not just a fixed default. |
+| 14 | Waypoints within a video | 01_13 | 🟡 Builder: full editor exists (`addWaypoint`/`updateWaypoint`/`removeWaypoint` + UI). Player-side click-through playback of a waypoint mid-video needs a direct check — not yet confirmed working end to end. |
+| 15 | Text overlay: frame, semi-transparent, position/size/timing | 01_14A/C/D/E | ✅ Inherited wholesale from LaerbarXR's overlay system, which already covers all of this. |
+| 16 | Player: local code/PIN entry gates scenario start | 02_07 | ✅ Builder: `project.accessCode` field. Player: `attemptStart()` + `#code-gate-modal`, checked before `startXR`/`startFlatPreview`. This is the actual replacement for LærbarXR's Dashboard-driven start — already done and it's the right shape. |
+| 17 | Player: gaze/target click, no controller | 02_04 | ✅ Inherited from LaerbarXR. |
+| 18 | Player: Kiosk mode, no Meta account required | 02_05, 02_06 | ✅ True by construction — no Meta SDK/account integration exists anywhere in the codebase (same as LaerbarXR), so there's nothing account-gated to disable. |
+| 19 | Player: jump between scenes, auto-reorient on arrival | 02_08A/B/C | 🟡 Scene jumping works (inherited node navigation). Auto-reorientation of forward-facing direction on arrival — so the learner doesn't land facing an arbitrary direction — is genuinely new WebXR work, not present in LaerbarXR either. |
+| 20 | Player: smooth-fade vs. direct-cut transition, selectable | 02_09, 02_10 | ✅ `mode = choice.transition \|\| currentNode.transition \|\| 'smooth'` — already implemented. |
+| 21 | Video compression in editor | 01_08 | 🟡 `compressVideo()` already exists (MediaRecorder/canvas.captureStream) but is a real quality/compatibility compromise, not true transcoding — treating as a documented known limitation rather than "not started." |
+| 22 | User management module | 01_03/01_04 | ⏸️ Deferred — see note above, flagged to Morten. |
+
+**Real remaining work, in priority order**: #7 (stereoscopic — biggest unknown),
+#11 (export flow UI), #6 (background toggle), #10 (project switcher), #12
+(start-position), #19 (auto-reorient), #13 (Builder-side fade authoring), #14
+(verify waypoint playback), #2 (incremental UX polish from the Mockup).
 
 ## Open questions for Morten / the client (not guessing on these silently)
 
 1. User management — confirm no-auth-for-now is acceptable (see above).
-2. Video compression — confirm deferring is acceptable, or is there a hard
-   requirement for launch.
-3. Export flow — client asked directly what this looks like; building a real,
-   presentable flow today (not a stub), will document exact behavior here once
-   built.
-4. Stereoscopic/text conflict — client raised this as a real concern; documenting
-   the chosen rendering approach here once implemented.
-5. Waypoints-within-a-video (01_13) vs. end-of-clip branching (01_11) — spec lists
-   these as separate requirements; need to confirm whether "waypoints" means
-   *multiple* clickable hotspots mid-video (not just at the end), which is a
-   materially different interaction model from LaerbarXR's end-of-clip choice
-   buttons. Building the more capable interpretation (mid-video hotspots) unless
-   told otherwise, since it's a superset of the simpler case.
+2. Video compression — confirm the `compressVideo()` MediaRecorder-based
+   approach (imperfect but functional) is acceptable for now, or whether true
+   transcoding is a hard launch requirement.
+3. Export flow — client asked directly what this looks like; building a real
+   presentable flow today, will document exact behavior here once built.
+4. Stereoscopic/text conflict — turns out to be "build stereoscopic support,
+   correctly, from scratch" rather than "fix an existing conflict." Approach:
+   render video on eye-specific layers (left/right), keep all text/image
+   overlays on a shared layer visible to both eyes — so overlays can never be
+   split, doubled, or misaligned by the stereo split. Will confirm this is what
+   ships once built.
+5. Waypoints-within-a-video (01_13) vs. end-of-clip branching (01_11) — the
+   Builder-side editor already treats these as separate, richer than a simple
+   end-of-clip choice (multiple hotspots placeable mid-video). Verifying Player
+   plays them back correctly rather than re-deciding the interaction model.
+6. **New UX (#2)**: decided to evolve the current *working* Builder toward the
+   Mockup's look incrementally, rather than swap in the Mockup's shell wholesale
+   — the Mockup has zero real logic behind it (confirmed: no file I/O, no
+   undo/export handlers, nodes not draggable), so a full swap today risks
+   trading a working tool for a broken-looking one. Flagging this judgment call
+   explicitly per your instruction — if you'd rather I attempt the full visual
+   replacement even at higher risk, say so and I'll pivot.
 
 ## Work log
 
 - **2026-09-15, start of day**: access check clean, repo hygiene fixed (see
-  above), requirements spec extracted and read in full, gap analysis of existing
-  ELaering-Builder/-Player vs. LaerbarXR backend + the Mockup's new design
-  kicked off.
+  above), requirements spec extracted and read in full.
+- **2026-09-15**: gap analysis complete — corrected this table against the real
+  code (see correction note above). Confirmed directly: stereoscopic video is
+  fully unbuilt, Builder has no fade-authoring UI despite Player supporting fade
+  playback. Starting on the real remaining-work list now.
