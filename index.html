@@ -26,75 +26,71 @@
   <script src="vendor/three.min.js"></script>
 
   <style>
+    /* Same design tokens as ELaering-Builder — dark chrome, one accent, shared
+       form language across the two apps rather than each inventing its own. */
     :root {
-      --primary: #0969da;
-      --primary-hover: #0855b3;
-      --bg: #f3f4f6;
-      --card-bg: rgba(255, 255, 255, 0.95);
-      --text: #1f2937;
-      --text-muted: #6b7280;
+      --bg: #0b0b0d;
+      --surface: #17171b;
+      --surface-2: #1e1e23;
+      --field-bg: #0e0e11;
+      --border: #2c2c32;
+      --border-soft: #232328;
+      --text: #f2f2f2;
+      --muted: #9a9aa2;
+      --accent: #f2f2f2;
+      --accent-text: #111318;
+      --green: #2ea043;
+      --red: #e5484d;
+      --shadow-lg: 0 24px 60px rgba(0,0,0,0.55);
     }
+    * { box-sizing: border-box; }
     body { margin: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
-    #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9000; padding: 20px; box-sizing: border-box; background: radial-gradient(circle at center, #e5e7eb 0%, #9ca3af 100%); }
-    .card { background: var(--card-bg); border-radius: 20px; padding: 32px 40px; box-shadow: 0 20px 40px rgba(0,0,0,0.15); max-width: 440px; width: 100%; text-align: center; backdrop-filter: blur(10px); }
-    .logo-container { margin-bottom: 24px; }
-    h1 { margin: 0 0 8px 0; font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
-    p.subtitle { margin: 0 0 28px 0; color: var(--text-muted); font-size: 15px; }
-    #saved-results { margin-top: 18px; }
-    .saved-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
-    .link-btn { background: none; border: none; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; padding: 4px 6px; text-decoration: underline; }
-    .link-btn.danger { color: #b91c1c; }
-    .identity { text-align: left; margin-bottom: 20px; }
-    .identity label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 0 0 4px 2px; }
-    .identity input { width: 100%; padding: 12px 14px; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 10px; box-sizing: border-box; margin-bottom: 12px; background: #f8fafc; color: var(--text); }
-    .identity input:focus { outline: none; border-color: var(--primary); background: #fff; }
-    .identity input:last-child { margin-bottom: 0; }
-    /* FIX #7: tap-to-pick identity — a headset going on for the first time has
-       no comfortable way to type; these let most students never touch the
-       keyboard at all. The text inputs stay underneath as a fallback/override
-       (renaming a headset, an odd group name, etc.). */
-    .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px 0; }
-    .chip { padding: 10px 16px; font-size: 14px; font-weight: 700; border: 1px solid #cbd5e1; border-radius: 20px; background: #f8fafc; color: var(--text); cursor: pointer; -webkit-tap-highlight-color: transparent; }
-    .chip:hover { border-color: var(--primary); }
-    .chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-    .identity-toggle { background: none; border: none; color: var(--primary); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0 0 10px 0; text-decoration: underline; display: block; }
-    .identity input.hidden-input { display: none; }
-    .solo-modal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.55); align-items: center; justify-content: center; z-index: 10500; padding: 20px; box-sizing: border-box; }
-    .solo-modal.show { display: flex; }
-    .solo-modal-card { background: #fff; border-radius: 18px; padding: 28px; max-width: 380px; width: 100%; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
-    .solo-modal-card h3 { margin: 0 0 10px 0; font-size: 19px; }
-    .solo-modal-card p { margin: 0 0 22px 0; font-size: 14px; color: var(--text-muted); line-height: 1.5; }
-    #code-gate-input { width: 100%; box-sizing: border-box; padding: 14px; font-size: 20px; letter-spacing: 4px; text-align: center; border: 1px solid #cbd5e1; border-radius: 10px; margin-bottom: 14px; }
-    #code-gate-error { color: #b91c1c; font-size: 13px; min-height: 18px; margin: -6px 0 10px 0; }
-    .solo-modal-actions { display: flex; flex-direction: column; gap: 10px; }
-    .solo-modal-actions button { padding: 14px; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; border: none; }
-    #code-gate-confirm { background: var(--primary); color: #fff; }
-    #code-gate-cancel { background: #f1f5f9; color: var(--text); }
+    #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9000; padding: 20px; box-sizing: border-box; background: var(--bg); }
+    .card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 18px; padding: 28px 26px; box-shadow: var(--shadow-lg); max-width: 400px; width: 100%; text-align: center; }
+    .logo-container { margin-bottom: 22px; }
+    h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
     /* Headset scenario menu (spec ID:02_03) — folders on the headset, listed as a
        tappable main menu instead of a one-off file picker. */
     #scenario-menu { text-align: left; margin-bottom: 14px; max-height: 220px; overflow-y: auto; }
-    .scenario-menu-item { display: block; width: 100%; text-align: left; padding: 12px 14px; margin-bottom: 6px; border: 1px solid #cbd5e1; border-radius: 10px; background: #f8fafc; color: var(--text); font-weight: 600; font-size: 14px; cursor: pointer; }
-    .scenario-menu-item:hover { border-color: var(--primary); background: #f0f7ff; }
-    .scenario-menu-item small { display: block; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
-    #open-folder-btn { width: 100%; padding: 12px; margin-bottom: 14px; font-size: 14px; font-weight: 600; background: var(--primary); color: #fff; border: none; border-radius: 10px; cursor: pointer; }
-    .file-drop-area { position: relative; display: flex; flex-direction: column; align-items: center; padding: 32px 20px; border: 2px dashed #cbd5e1; border-radius: 16px; background: #f8fafc; cursor: pointer; transition: all 0.2s; margin-bottom: 20px; }
-    .file-drop-area:hover { border-color: var(--primary); background: #f0f7ff; }
-    .file-drop-area span { font-size: 16px; font-weight: 600; color: var(--primary); }
-    .file-drop-area small { color: var(--text-muted); margin-top: 8px; }
+    .scenario-menu-item { display: block; width: 100%; text-align: left; padding: 12px 14px; margin-bottom: 6px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--field-bg); color: var(--text); font-weight: 600; font-size: 13.5px; cursor: pointer; }
+    .scenario-menu-item:hover { border-color: var(--text); background: var(--surface-2); }
+    .scenario-menu-item small { display: block; font-weight: 400; color: var(--muted); margin-top: 2px; }
+    #open-folder-btn { width: 100%; padding: 12px; margin-top: 18px; margin-bottom: 14px; font-size: 13.5px; font-weight: 700; background: var(--accent); color: var(--accent-text); border: none; border-radius: 11px; cursor: pointer; }
+    #open-folder-btn:hover { background: #fff; }
+    .file-drop-area { position: relative; display: flex; flex-direction: column; align-items: center; padding: 28px 20px; border: 2px dashed var(--border-soft); border-radius: 14px; background: var(--field-bg); cursor: pointer; transition: border-color .15s, background .15s; margin: 18px 0; }
+    .file-drop-area:hover { border-color: var(--text); background: var(--surface-2); }
+    .file-drop-area span { font-size: 14px; font-weight: 600; color: var(--text); }
+    .file-drop-area small { color: var(--muted); margin-top: 6px; font-size: 12px; }
     #file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-    #session-info { font-size: 16px; color: #059669; margin-bottom: 24px; font-weight: 600; min-height: 24px; background: #ecfdf5; padding: 12px; border-radius: 8px; display: none; }
+    #session-info { font-size: 13px; color: var(--green); margin-bottom: 16px; font-weight: 600; min-height: 20px; background: rgba(46,160,67,0.12); padding: 10px; border-radius: 9px; display: none; }
     #session-info.show { display: block; }
-    #start-button { padding: 16px 32px; font-size: 18px; background: var(--primary); color: white; border: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(9, 105, 218, 0.3); cursor: pointer; transition: all 0.2s; font-weight: 600; width: 100%; }
-    #start-button:hover:not(:disabled) { transform: translateY(-2px); background: var(--primary-hover); box-shadow: 0 6px 16px rgba(9, 105, 218, 0.4); }
-    #start-button:disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; box-shadow: none; }
-    #preview-button { margin-top: 10px; padding: 12px 24px; font-size: 15px; background: transparent; color: var(--primary); border: 1px solid #cbd5e1; border-radius: 12px; cursor: pointer; font-weight: 600; width: 100%; transition: all 0.2s; }
-    #preview-button:hover:not(:disabled) { border-color: var(--primary); background: #f0f7ff; }
-    #preview-button:disabled { color: #94a3b8; cursor: not-allowed; }
-    #status { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); background: rgba(17, 24, 39, 0.9); color: white; padding: 14px 28px; border-radius: 30px; font-size: 15px; font-weight: 500; display: none; z-index: 9999; backdrop-filter: blur(4px); }
-    .exit-xr { position: fixed; top: 24px; right: 24px; background: rgba(255,255,255,0.9); color: #111; border: none; border-radius: 50%; width: 50px; height: 50px; display: none; align-items: center; justify-content: center; font-size: 28px; cursor: pointer; z-index: 9999; font-weight: 300; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    #start-button { padding: 14px 28px; font-size: 15px; background: var(--accent); color: var(--accent-text); border: none; border-radius: 12px; cursor: pointer; transition: background .15s; font-weight: 700; width: 100%; }
+    #start-button:hover:not(:disabled) { background: #fff; }
+    #start-button:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
+    #preview-button { margin-top: 10px; padding: 12px 24px; font-size: 13.5px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border-soft); border-radius: 12px; cursor: pointer; font-weight: 600; width: 100%; transition: background .15s; }
+    #preview-button:hover:not(:disabled) { background: var(--field-bg); }
+    #preview-button:disabled { color: var(--muted); cursor: not-allowed; }
+    #status { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--accent-text); padding: 12px 26px; border-radius: 30px; font-size: 13.5px; font-weight: 600; display: none; z-index: 9999; box-shadow: var(--shadow-lg); }
+    .exit-xr { position: fixed; top: 24px; right: 24px; background: rgba(23,23,27,0.9); color: var(--text); border: 1px solid var(--border-soft); border-radius: 50%; width: 48px; height: 48px; display: none; align-items: center; justify-content: center; font-size: 26px; cursor: pointer; z-index: 9999; font-weight: 300; box-shadow: var(--shadow-lg); }
     .xr-active .exit-xr { display: flex; }
     .xr-active #overlay { display: none; }
     video { display: none; }
+
+    /* Access-code gate (spec ID:02_07) — same scrim/modal-box language as the Builder. */
+    .solo-modal { display: none; position: fixed; inset: 0; background: rgba(4,4,6,0.6); align-items: center; justify-content: center; z-index: 10500; padding: 20px; box-sizing: border-box; }
+    .solo-modal.show { display: flex; }
+    .solo-modal-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 18px; padding: 22px; max-width: 360px; width: 100%; text-align: center; box-shadow: var(--shadow-lg); }
+    .solo-modal-card h3 { margin: 0 0 6px 0; font-size: 16px; font-weight: 700; }
+    .solo-modal-card p { margin: 0 0 18px 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+    #code-gate-input { width: 100%; box-sizing: border-box; padding: 12px; font-size: 19px; letter-spacing: 4px; text-align: center; background: var(--field-bg); border: 1px solid var(--border-soft); color: var(--text); border-radius: 10px; margin-bottom: 12px; outline: none; }
+    #code-gate-input:focus { border-color: var(--text); }
+    #code-gate-error { color: var(--red); font-size: 12.5px; min-height: 18px; margin: -4px 0 8px 0; }
+    .solo-modal-actions { display: flex; flex-direction: column; gap: 8px; }
+    .solo-modal-actions button { padding: 13px; border-radius: 11px; font-size: 14px; font-weight: 700; cursor: pointer; border: none; transition: background .15s; }
+    #code-gate-confirm { background: var(--accent); color: var(--accent-text); }
+    #code-gate-confirm:hover { background: #fff; }
+    #code-gate-cancel { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-soft); }
+    #code-gate-cancel:hover { background: var(--field-bg); }
   </style>
 </head>
 <body>
@@ -105,22 +101,7 @@
     <div class="card">
       <div class="logo-container">
         <h1>E-Læring Player</h1>
-        <p class="subtitle">Immersive Gaze-Controlled Training</p>
       </div>
-      <!-- Headset identity. Without this the results file the player writes at the
-           end of a run cannot be attributed to a headset or a group, so the teacher
-           dashboard has nothing to aggregate. Both values persist on the device, so
-           each headset only has to be labelled once. -->
-      <div class="identity">
-        <label for="headset-id">Headset</label>
-        <div class="chip-row" id="headset-id-chips"></div>
-        <input type="text" id="headset-id" class="hidden-input" placeholder="e.g. Headset 07" autocomplete="off">
-        <label for="headset-group">Hold / group</label>
-        <div class="chip-row" id="headset-group-chips"></div>
-        <input type="text" id="headset-group" class="hidden-input" placeholder="e.g. Hold 1" autocomplete="off">
-        <button type="button" class="identity-toggle" id="identity-toggle-typing">✎ Type a different name instead</button>
-      </div>
-
       <!-- Main menu (spec ID:02_03): scenarios living in a folder on the headset,
            e.g. Downloads/Scenarios — read straight off the device instead of
            one file at a time. Shown only where the browser supports it (Meta
@@ -133,15 +114,12 @@
 
       <div class="file-drop-area">
         <span>Click to Upload Scenario</span>
-        <small>.zip or .lxr packages</small>
+        <small>.zip file exported from the Builder</small>
         <input type="file" id="file-input" accept=".zip,.lxr">
       </div>
       <div id="session-info"></div>
       <button id="start-button" disabled>Enter Immersive VR</button>
       <button id="preview-button" disabled>Run on this screen (no headset)</button>
-
-      <!-- Recovery for runs whose automatic download did not reach the teacher. -->
-      <div id="saved-results"></div>
     </div>
   </div>
 
@@ -265,8 +243,6 @@
     const _gazeDir = new THREE.Vector3();
     const _gazeQuat = new THREE.Quaternion();
 
-    // Analytics
-    let sessionLog = [];
     let sessionStartTime = 0;
 
 
@@ -308,123 +284,14 @@
     const statusElement = document.getElementById('status');
     const exitButton = document.getElementById('exit-xr');
     const previewButton = document.getElementById('preview-button');
-    const headsetIdInput = document.getElementById('headset-id');
-    const headsetGroupInput = document.getElementById('headset-group');
-
-    // Headset identity, remembered on the device so it survives restarts.
-    function loadIdentity() {
-      try {
-        headsetIdInput.value    = localStorage.getItem('lxr_headset_id')    || '';
-        headsetGroupInput.value = localStorage.getItem('lxr_headset_group') || '';
-      } catch (e) { /* private mode — identity just won't persist */ }
-    }
-    function saveIdentity() {
-      try {
-        localStorage.setItem('lxr_headset_id', headsetIdInput.value.trim());
-        localStorage.setItem('lxr_headset_group', headsetGroupInput.value.trim());
-      } catch (e) {}
-    }
-    function headsetId()    { return headsetIdInput.value.trim() || 'Unnamed headset'; }
-    function headsetGroup() { return headsetGroupInput.value.trim() || 'Hold 1'; }
-
-    // FIX #7: quick-pick identity chips. A student putting a headset on for
-    // the first time has no comfortable way to type a name — no physical
-    // keyboard, and a gaze/controller on-screen keyboard is slow and error
-    // prone. Tapping a number/group chip fills the same underlying input
-    // (and reuses saveIdentity/loadIdentity/headsetId/headsetGroup exactly as
-    // before) so nothing downstream — heartbeats, results files, the
-    // dashboard — needs to know this UI exists. The raw text inputs are kept
-    // as a hidden fallback for anyone who wants a custom name.
-    const headsetIdChips = document.getElementById('headset-id-chips');
-    const headsetGroupChips = document.getElementById('headset-group-chips');
-    const identityToggleBtn = document.getElementById('identity-toggle-typing');
-
-    function makeChip(displayLabel, valueToSet, input, row) {
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'chip';
-      chip.textContent = displayLabel;
-      chip.dataset.value = valueToSet;
-      chip.addEventListener('click', function () {
-        input.value = valueToSet;
-        saveIdentity();
-        updateStartEnabled();
-        refreshChipActiveStates();
-      });
-      row.appendChild(chip);
-    }
-
-    function renderIdentityChips() {
-      headsetIdChips.innerHTML = '';
-      headsetGroupChips.innerHTML = '';
-      for (let n = 1; n <= 20; n++) {
-        const padded = n < 10 ? '0' + n : String(n);
-        makeChip(padded, 'Headset ' + padded, headsetIdInput, headsetIdChips);
-      }
-      for (let g = 1; g <= 6; g++) {
-        makeChip('Hold ' + g, 'Hold ' + g, headsetGroupInput, headsetGroupChips);
-      }
-      refreshChipActiveStates();
-    }
-
-    function refreshChipActiveStates() {
-      const idVal = headsetIdInput.value.trim();
-      const groupVal = headsetGroupInput.value.trim();
-      Array.from(headsetIdChips.children).forEach(function (c) {
-        c.classList.toggle('active', c.dataset.value === idVal);
-      });
-      Array.from(headsetGroupChips.children).forEach(function (c) {
-        c.classList.toggle('active', c.dataset.value === groupVal);
-      });
-    }
-
-    // Lets anyone whose real name/group isn't a plain number (a co-teacher
-    // testing a headset, an unusual hold name) fall back to free typing —
-    // the chips remain the default path, this is the escape hatch, not the
-    // other way around.
-    let identityTypingMode = false;
-    function toggleIdentityTypingMode() {
-      identityTypingMode = !identityTypingMode;
-      headsetIdInput.classList.toggle('hidden-input', !identityTypingMode);
-      headsetGroupInput.classList.toggle('hidden-input', !identityTypingMode);
-      headsetIdChips.style.display = identityTypingMode ? 'none' : 'flex';
-      headsetGroupChips.style.display = identityTypingMode ? 'none' : 'flex';
-      identityToggleBtn.textContent = identityTypingMode ? '✓ Use quick-pick buttons instead' : '✎ Type a different name instead';
-      if (identityTypingMode) headsetIdInput.focus();
-    }
-    identityToggleBtn.addEventListener('click', toggleIdentityTypingMode);
-
-    // A stable per-device id, generated once and persisted, appended to the results
-    // filename as a safety net (§4.5). Two unlabelled headsets would otherwise both
-    // write "Unnamed_headset_..._eval.json" and collide in the download folder.
-    function deviceId() {
-      try {
-        let id = localStorage.getItem('lxr_device_id');
-        if (!id) { id = 'dev' + Math.random().toString(36).slice(2, 8); localStorage.setItem('lxr_device_id', id); }
-        return id;
-      } catch (e) { return 'dev' + Math.random().toString(36).slice(2, 8); }
-    }
-
-    // Start/Preview require BOTH a loaded scenario AND a headset name (§4.5), so a run
-    // can never be attributed to "Unnamed headset". Preview (on-screen) still needs a
-    // name too — its results file is imported into the same dashboard.
+    // Start/Preview just need a loaded scenario — there's no fleet of headsets to
+    // attribute a run to and no dashboard to feed, so unlike the platform this was
+    // forked from, entering a name/group here isn't a precondition to start.
     function updateStartEnabled() {
-      const named = headsetIdInput.value.trim().length > 0;
       const loaded = !!sessionData;
-      startButton.disabled = !(loaded && named && xrSupported);
-      previewButton.disabled = !(loaded && named);
-      // BUGFIX: this used to only ever SET the "enter a headset name" message and
-      // never clear it. Loading a scenario before typing a name (the natural order
-      // for most teachers) left that message on screen forever -- the Start/Preview
-      // buttons correctly re-enabled the moment a name was typed, but the status
-      // text never caught up, so the screen kept telling the teacher to do
-      // something they'd already done. Restore the "Ready: <title>" message once a
-      // name is present, matching what handleFileSelect shows right after a
-      // successful load.
-      if (loaded && !named) {
-        sessionInfo.textContent = 'Enter a headset name above to start';
-        sessionInfo.classList.add('show');
-      } else if (loaded && named) {
+      startButton.disabled = !(loaded && xrSupported);
+      previewButton.disabled = !loaded;
+      if (loaded) {
         sessionInfo.textContent = `Ready: ${sessionData.title}`;
         sessionInfo.classList.add('show');
       }
@@ -529,16 +396,7 @@
       exitButton.addEventListener('click', endSession);
       fileInput.addEventListener('change', handleFileSelect);
 
-      loadIdentity();
-      renderIdentityChips();
       initScenarioFolderMenu();
-      // If this device already has a stored identity, no chip tap or typing
-      // is needed at all — quick-pick starts in its default (non-typing) view.
-      headsetIdInput.addEventListener('change', function () { saveIdentity(); refreshChipActiveStates(); });
-      headsetGroupInput.addEventListener('change', function () { saveIdentity(); refreshChipActiveStates(); });
-      // Enable/disable Start live as the name is typed, not only on blur.
-      headsetIdInput.addEventListener('input', function () { updateStartEnabled(); refreshChipActiveStates(); });
-      renderSavedResults();
     }
 
     // A small camera-locked plane shown while a node's video is still buffering,
@@ -737,13 +595,13 @@
 
     async function scanScenarioFolder(dirHandle) {
       const menu = document.getElementById('scenario-menu');
-      menu.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">Scanning…</div>';
+      menu.innerHTML = '<div style="font-size:12px;color:var(--muted);">Scanning…</div>';
       const items = [];
       for await (const [name, handle] of dirHandle.entries()) {
         if (handle.kind === 'file' && SCENARIO_EXT.test(name)) items.push({ name, handle });
       }
       if (!items.length) {
-        menu.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">No .zip/.lxr scenarios found in this folder.</div>';
+        menu.innerHTML = '<div style="font-size:12px;color:var(--muted);">No scenarios found in this folder.</div>';
         return;
       }
       menu.innerHTML = '';
@@ -959,7 +817,6 @@
 
     // Everything that is identical between a headset run and a flat preview.
     function beginScenario() {
-      saveIdentity();
       // §2.1 — restart the delta clock at the top of EVERY run. THREE.Clock is created
       // once and keeps running while renderer.setAnimationLoop(null) has stopped frames;
       // without this reset the first frame of a second run returns the entire idle gap
@@ -970,14 +827,6 @@
       if (endTimer) { clearTimeout(endTimer); endTimer = null; }
       showLoading(false);
       sessionStartTime = performance.now();
-      sessionLog = [{
-        action: 'session_start',
-        title: sessionData.title,
-        headsetId: headsetId(),
-        group: headsetGroup(),
-        started_at: new Date().toISOString(),
-        session_time_sec: 0
-      }];
 
       proceedToFirstNode();
     }
@@ -1001,61 +850,11 @@
       clearOverlays();
 
       if (previewEmbedMode) {
-        // A test click-through in the Builder is not a class run: no eval.json
-        // download, no localStorage entry, no relay POST. Just tell the Builder
-        // it reached an end so its own preview UI (e.g. a Restart control) can react.
+        // A test click-through in the Builder is not a class run — just tell the
+        // Builder it reached an end so its own preview UI (e.g. a Restart control) can react.
         try { parent.postMessage({ type: 'lxrPreviewEnded' }, '*'); } catch (_) {}
-        sessionLog = []; sessionStartTime = 0; currentNode = null;
-        return;
       }
-
-      if (sessionLog.length > 1) {
-        const duration = +((performance.now() - sessionStartTime) / 1000).toFixed(2);
-        sessionLog.push({ action: 'session_end', duration_sec: duration, session_time_sec: duration });
-
-        // The results file now carries the headset's identity alongside the events,
-        // which is what lets the dashboard attribute a run to a headset and a group.
-        const results = {
-          headsetId: headsetId(),
-          deviceId: deviceId(),
-          group: headsetGroup(),
-          scenario: sessionData.title,
-          finished_at: new Date().toISOString(),
-          duration_sec: duration,
-          events: sessionLog
-        };
-        const json = JSON.stringify(results, null, 2);
-        const safe = s => String(s).replace(/[^a-z0-9]/gi, '_');
-        // Device id in the filename is the collision safety net (§4.5): even two
-        // "Unnamed headset" devices land in distinct files.
-        const fileName = `${safe(headsetId())}_${safe(sessionData.title)}_${deviceId()}_eval.json`;
-
-        // Results are stashed on the device BEFORE the download is attempted. On a
-        // headset a download can be silently refused or land somewhere the user can't
-        // reach; the old code swallowed that failure whole and the run's data was
-        // simply lost. Now it always survives locally and can be recovered.
-        try {
-          const keep = JSON.parse(localStorage.getItem('lxr_results') || '[]');
-          keep.push({ fileName: fileName, savedAt: results.finished_at, results: results });
-          while (keep.length > 25) keep.shift();   // bounded — keep the last 25 runs
-          localStorage.setItem('lxr_results', JSON.stringify(keep));
-        } catch (e) { /* storage full or unavailable — the download below is the fallback */ }
-
-        try {
-          const blob = new Blob([json], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = fileName;
-          document.body.appendChild(a); a.click(); document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(url), 4000);
-          updateStatus('Results saved: ' + fileName);
-        } catch (err) {
-          updateStatus('Results kept on this device — use "Saved results" to retrieve them', true);
-        }
-        renderSavedResults();
-      }
-      sessionLog = []; sessionStartTime = 0; currentNode = null;
+      sessionStartTime = 0; currentNode = null;
     }
 
     // 180° footage (spec ID:01_07/02_?): a forward-facing half-dome instead of a full
@@ -1223,13 +1022,6 @@
 
     // === Node Logic ===
     async function loadNode(node) {
-      // session_time_sec (seconds since the run began) is what the dashboard and any
-      // spreadsheet actually need; the old raw performance.now() timestamp was an
-      // arbitrary number of milliseconds since page load and could not be analysed.
-      sessionLog.push({
-        action: 'node_start', node_id: node.id, title: node.title,
-        session_time_sec: +((performance.now() - sessionStartTime) / 1000).toFixed(2)
-      });
       if (previewEmbedMode) { try { parent.postMessage({ type: 'lxrPreviewNode', nodeId: node.id }, '*'); } catch (_) {} }
       orientContentToStart(node);
       clearOverlays();
@@ -1521,11 +1313,7 @@
     }
 
     // === Selection Logic ===
-    // `isAuto` marks a navigation the render loop triggered because a node's
-    // timeline ran out with no learner choice (§2.3). It is logged as a distinct
-    // `auto_advance` action, NEVER as a `choice_made` answer, so the teacher's CSV
-    // can never contain an answer no learner gave.
-    function selectChoice(choice, isAuto) {
+    function selectChoice(choice) {
       // Retry-play gate is handled before the transition lock.
       if (choice && choice.__retryPlay) {
         clearPlayGate();
@@ -1553,21 +1341,6 @@
       if (isTransitioning) return;
       isTransitioning = true;
 
-      const nowSec = +((performance.now() - sessionStartTime) / 1000).toFixed(2);
-      if (isAuto) {
-        sessionLog.push({
-          action: 'auto_advance', node: currentNode.id, node_title: currentNode.title,
-          target: choice.target,
-          session_time_sec: nowSec, node_time_sec: +nodeTimer.toFixed(2)
-        });
-      } else {
-        sessionLog.push({
-          action: 'choice_made', node: currentNode.id, node_title: currentNode.title,
-          question: currentNode.question || '',
-          choice: choice.label, correct: choice.correct, target: choice.target,
-          session_time_sec: nowSec, node_time_sec: +nodeTimer.toFixed(2)
-        });
-      }
       updateGazeProgress(0);
 
       // Direct vs. smooth transition (spec ID:02_09/02_10): a choice/waypoint can
@@ -1717,7 +1490,7 @@
 
         if (!choicesPending && ended) {
           if (currentNode.defaultNext) {
-            selectChoice({ target: currentNode.defaultNext }, true); // auto_advance, self-guards
+            selectChoice({ target: currentNode.defaultNext }); // self-guards via isTransitioning
           } else if (!isTransitioning) {
             isTransitioning = true; // terminal node, no link → end instead of freezing
             fadeAndEnd();
@@ -2020,47 +1793,6 @@
       mesh.userData.boxWidth = (logicWidth / 256) * scale;
       mesh.userData.boxHeight = (logicHeight / 256) * scale;
       return mesh;
-    }
-
-    // === Saved results (recovery) ===
-    function readSavedResults() {
-      try { return JSON.parse(localStorage.getItem('lxr_results') || '[]'); }
-      catch (e) { return []; }
-    }
-
-    function renderSavedResults() {
-      const host = document.getElementById('saved-results');
-      if (!host) return;
-      const saved = readSavedResults();
-      if (!saved.length) { host.innerHTML = ''; return; }
-      host.innerHTML =
-        '<div class="saved-title">Saved results on this headset (' + saved.length + ')</div>' +
-        '<button id="download-saved" class="link-btn">Download all again</button> ' +
-        '<button id="clear-saved" class="link-btn danger">Clear</button>';
-      document.getElementById('download-saved').addEventListener('click', downloadSavedResults);
-      document.getElementById('clear-saved').addEventListener('click', () => {
-        if (!confirm('Delete the results stored on this headset?')) return;
-        try { localStorage.removeItem('lxr_results'); } catch (e) {}
-        renderSavedResults();
-        updateStatus('Saved results cleared');
-      });
-    }
-
-    function downloadSavedResults() {
-      const saved = readSavedResults();
-      saved.forEach((entry, i) => {
-        setTimeout(() => {
-          try {
-            const blob = new Blob([JSON.stringify(entry.results, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = entry.fileName;
-            document.body.appendChild(a); a.click(); document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 4000);
-          } catch (e) {}
-        }, i * 350); // stagger — browsers drop rapid-fire simultaneous downloads
-      });
-      updateStatus('Re-downloading ' + saved.length + ' result file(s)');
     }
 
     function updateStatus(message, isError = false) {
