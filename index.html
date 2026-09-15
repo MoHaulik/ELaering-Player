@@ -1381,10 +1381,9 @@
       fadeTo(1, END_FADE_SEC, endSession);
     }
 
-    // Ends the run whether it is a headset session or a flat preview. The old
-    // version only handled xrSession, so a flat run could never finish and never
-    // wrote its results file. Idempotent (§2.2): the render loop, the end timer and
-    // the exit affordance can all reach here, but the teardown must run exactly once.
+    // Ends the run whether it is a headset session or a flat preview. Idempotent
+    // (§2.2): the render loop, the end timer and the exit affordance can all
+    // reach here, but the teardown must run exactly once.
     function endSession() {
       if (sessionEnding) return;
       sessionEnding = true;
