@@ -84,19 +84,19 @@ Status legend: ✅ done (verified in code) · 🟡 partial/needs finishing · �
 | # | Item | Spec ID(s) | Status |
 |---|---|---|---|
 | 1 | No dashboard — builder + player only | (platform shape) | ✅ Player has zero relay/heartbeat/dashboard code — confirmed no `fetch(` calls exist at all. Replaced by the local code-gate (#16). |
-| 2 | New, sleeker builder UX (from Mockup design) | 01_05 | 🟡 Current Builder is a working dark reskin of the LaerbarXR layout (top toolbar + left inspector), not yet the Mockup's bottom-dock/card-flow design. The Mockup itself is **UI-only — no real logic wired to it at all** (fake hardcoded nodes, Undo/Export buttons with no click handlers, nodes aren't draggable). Decision: port the Mockup's visual language into the *working* Builder incrementally rather than risk a full rip-and-replace that could leave it non-functional — see decision note below. |
+| 2 | New, sleeker builder UX (from Mockup design) | 01_05 | ✅ Per Morten's explicit correction, the Mockup's actual shell now ships as the real UI (dock/card-flow/bottom-sheet), with the full working backend ported in underneath. Verified live: `App` loads, no console errors, node graph/inspector/export all function inside the new shell. |
 | 3 | 180° video support (builder + player) | 01_07 | ✅ Builder: `setVideoProjection()`, per-asset `projection` field. Player: `makeProjectionGeometry()`/`applyVideoProjection()` (half-dome vs full sphere). |
 | 4 | Voice-over / narration support | 01_12A/B/C, 01_14B | ✅ Builder: `node.narration` model, `updateNarration()`, editor UI. Player: `narrationAudio`, "Hear again" replay button. |
 | 5 | Offline export zip + online-hostable player | (client Q confirmed) | ✅ Export is a local zip (same JSZip pipeline as LærbarXR, no cloud dependency). Player has zero network dependency (#1), so it's equally valid opened from a local file or hosted on GitHub Pages — both delivery modes already just work. |
-| 6 | Background colour toggle (black/white/grey, persisted) | — (meeting notes) | ⬜ Not found anywhere in either app. |
-| 7 | Stereoscopic video support + text-overlay conflict | — (meeting notes, client concern) | ⬜ **Bigger than it looked**: zero matches for "stereo" anywhere in either app — stereoscopic playback isn't built at all yet, so the client's concern is about a feature that doesn't exist rather than a rendering-order bug in an existing one. Real 180° VR footage is commonly captured as stereo pairs, so this is worth building properly, not skipping. |
+| 6 | Background colour toggle (black/white/grey, persisted) | — (meeting notes) | ✅ Built in the new Builder shell — `body[data-canvas-bg]`, persisted, user-switchable. |
+| 7 | Stereoscopic video support + text-overlay conflict | — (meeting notes, client concern) | 🟡 **Builder side done**: per-video `stereo: mono/sbs/tb` field + UI in the Scene editor, persisted through save/export. **Player side still missing**: no stereo texture/eye-layer rendering yet — this is the biggest confirmed remaining gap, see priority list below. Planned approach (documented, not yet built): render video on eye-specific layers, keep text/image overlays on a shared layer visible to both eyes so overlays can never split or double. |
 | 8 | Freely-repositionable branch nodes on canvas | — (meeting notes) | ✅ Nodes are already draggable (`startDrag`/`onDrag`, inherited from LaerbarXR) and `x`/`y` are already part of the persisted/exported node data — this looks like it already satisfies the client's ask (visual repositioning only, not touching the actual connections). Will spot-check, not rebuild. |
 | 9 | Zoom control (visible %, independent of browser zoom) | — (meeting notes) | ✅ Already present (`.zoom-label` / `zoomBy`), inherited from LaerbarXR. |
-| 10 | Project switcher / tabs near project name | — (meeting notes) | ⬜ Not found. |
-| 11 | Export flow — real UI, not a stub | — (meeting notes, client asked directly) | 🟡 Same single-button export as LaerbarXR's reference — functional, but not the presentable flow the client asked to see. |
-| 12 | Start-position selection on a recording | 01_09 | ⬜ Not found in Builder or Player. |
-| 13 | Fade to/from black at clip start/end | 01_10, 02_11 | 🟡 Player already plays fades (`fadeTo`/`tickFade`, wired into `selectChoice` and end-of-scenario). Builder has **no UI to author the fade timing** — needs a control added so it's not just a fixed default. |
-| 14 | Waypoints within a video | 01_13 | 🟡 Builder: full editor exists (`addWaypoint`/`updateWaypoint`/`removeWaypoint` + UI). Player-side click-through playback of a waypoint mid-video needs a direct check — not yet confirmed working end to end. |
+| 10 | Project switcher / tabs near project name | — (meeting notes) | ✅ Built — tab strip near the project name, `localStorage`-backed (structure-only persistence, matching the existing autosave convention). |
+| 11 | Export flow — real UI, not a stub | — (meeting notes, client asked directly) | ✅ Real summary-modal flow built (title, scene count, media counts, stereo-clip count, access-code warning) before the zip is generated. Zip-generation logic verified correct by direct inspection (see work log); the browser-download step itself couldn't be 100% confirmed from inside this tool (sandbox limitation, see work log) — worth one spot-check from a real browser. |
+| 12 | Start-position selection on a recording | 01_09 | 🟡 Builder-side authoring done (`node.startYaw`, UI control). Player-side — actually orienting the camera to that yaw on scene load — not yet verified/wired. |
+| 13 | Fade to/from black at clip start/end | 01_10, 02_11 | ✅ Player already played fades; Builder now has the authoring UI too (`fadeIn`/`fadeOut` fields on each scene). |
+| 14 | Waypoints within a video | 01_13 | 🟡 Builder: full editor exists (`addWaypoint`/`updateWaypoint`/`removeWaypoint` + UI). Player: gaze-dwell click-through works, and per Morten's explicit request the waypoint marker itself is now a **Matterport-style floating disc** (`createWaypointMarker` — white circular disc, soft halo, dark ring, directional chevron, small caption below) instead of a plain text button. Still not confirmed end-to-end against a real multi-scene project with an actual mid-video waypoint click. |
 | 15 | Text overlay: frame, semi-transparent, position/size/timing | 01_14A/C/D/E | ✅ Inherited wholesale from LaerbarXR's overlay system, which already covers all of this. |
 | 16 | Player: local code/PIN entry gates scenario start | 02_07 | ✅ Builder: `project.accessCode` field. Player: `attemptStart()` + `#code-gate-modal`, checked before `startXR`/`startFlatPreview`. This is the actual replacement for LærbarXR's Dashboard-driven start — already done and it's the right shape. |
 | 17 | Player: gaze/target click, no controller | 02_04 | ✅ Inherited from LaerbarXR. |
@@ -106,10 +106,12 @@ Status legend: ✅ done (verified in code) · 🟡 partial/needs finishing · �
 | 21 | Video compression in editor | 01_08 | 🟡 `compressVideo()` already exists (MediaRecorder/canvas.captureStream) but is a real quality/compatibility compromise, not true transcoding — treating as a documented known limitation rather than "not started." |
 | 22 | User management module | 01_03/01_04 | ⏸️ Deferred — see note above, flagged to Morten. |
 
-**Real remaining work, in priority order**: #7 (stereoscopic — biggest unknown),
-#11 (export flow UI), #6 (background toggle), #10 (project switcher), #12
-(start-position), #19 (auto-reorient), #13 (Builder-side fade authoring), #14
-(verify waypoint playback), #2 (incremental UX polish from the Mockup).
+**Real remaining work, in priority order**: #7 (stereoscopic **rendering** in
+Player — Builder-side authoring is done), #19 (auto-reorient on scene jump,
+also covers the Player half of #12 start-position), #14 (verify waypoint
+mid-video playback end-to-end in Player), then apply the same mockup-derived
+design treatment to `ELaering-Player` if that's in scope (not yet confirmed
+with Morten — see open question below).
 
 ## Open questions for Morten / the client (not guessing on these silently)
 
@@ -129,13 +131,15 @@ Status legend: ✅ done (verified in code) · 🟡 partial/needs finishing · �
    Builder-side editor already treats these as separate, richer than a simple
    end-of-clip choice (multiple hotspots placeable mid-video). Verifying Player
    plays them back correctly rather than re-deciding the interaction model.
-6. **New UX (#2)**: decided to evolve the current *working* Builder toward the
-   Mockup's look incrementally, rather than swap in the Mockup's shell wholesale
-   — the Mockup has zero real logic behind it (confirmed: no file I/O, no
-   undo/export handlers, nodes not draggable), so a full swap today risks
-   trading a working tool for a broken-looking one. Flagging this judgment call
-   explicitly per your instruction — if you'd rather I attempt the full visual
-   replacement even at higher risk, say so and I'll pivot.
+6. **New UX (#2) — RESOLVED**: you confirmed explicitly that the Mockup's actual
+   shell must ship as the real product ("I want the design to look like the
+   mock up... it's what's make it a real product and not just a clone"), with
+   all functionality (old + new) ported into it. Done — see work log. One open
+   item this raises: is the same design treatment expected on `ELaering-Player`
+   too, or does the Player's visual approach stay as-is (headset UI has
+   different constraints than a desktop Builder)? Haven't touched Player's UI
+   yet, only confirmed its backend feature-parity gaps (stereo rendering,
+   auto-reorient).
 
 ## Work log
 
@@ -145,3 +149,43 @@ Status legend: ✅ done (verified in code) · 🟡 partial/needs finishing · �
   code (see correction note above). Confirmed directly: stereoscopic video is
   fully unbuilt, Builder has no fade-authoring UI despite Player supporting fade
   playback. Starting on the real remaining-work list now.
+- **2026-09-15, mid-day — major decision reversal (per Morten's explicit
+  instruction)**: Morten confirmed the Mockup's actual visual shell must ship as
+  the real product UI, with all functionality (old + new) ported into it — not
+  an incremental reskin. Rebuilt `ELaering-Builder/index.html` from scratch:
+  Mockup's dock/card-flow/bottom-sheet shell + the full working backend ported
+  from the pre-rewrite Builder (project model, save/export, inspector logic,
+  node graph) + new features layered in: **#6 background toggle** (black/white/
+  grey, persisted via `body[data-canvas-bg]`), **#10 project switcher** (tab
+  strip near project name, `localStorage`-backed, structure-only persistence),
+  **#7 stereo authoring** (per-video `stereo: mono/sbs/tb` field + UI — Builder
+  side only, see below), **#12 start-position** (`node.startYaw`), **#13 fade
+  authoring UI** (`fadeIn`/`fadeOut` fields, Player already played these, Builder
+  now lets you set them), **#11 real export flow** (summary modal — title,
+  scene count, media counts, stereo-clip count, access-code warning — before the
+  actual zip build). Committed and pushed to `origin/main` (`ebf0915`).
+  - Caught and fixed before push: a stray `${''}` template-literal artifact in
+    literal HTML, and a systemic quote-escaping `SyntaxError` (27 lines across 4
+    editor-builder functions mixed single/double JS-string quotes inside inline
+    `onchange="..."` attributes — rewrote all 4 to template literals). Verified
+    clean via syntax-checking the extracted script and confirming `App` loads on
+    the live page.
+  - Caught via live UI testing: attaching a video didn't refresh the open Scene
+    editor card to show the new Projection/Stereo/Start-position fields — fixed
+    by calling `refreshOpenEditor()`/`buildCardGrid()` in `handleVideoPick`.
+- **2026-09-15, later** — investigated an apparent export bug: `runExport()`
+  reports success (toast, modal closes, no errors) but no `.zip` lands in
+  `~/Downloads`, reproduced identically on the local dev server AND on the live
+  `https://mohaulik.github.io/ELaering-Builder/` URL. Root-caused by generating
+  the zip directly and inspecting it in-memory (bypassing the download step):
+  the archive itself is perfectly well-formed — correct `project.json`, correct
+  video file, correct metadata (title/nodes/stereo/projection all intact).
+  Isolated further by triggering a trivial 17-byte text-file download with the
+  identical `a.download` + `a.click()` pattern — that also never reached
+  `~/Downloads`. **Conclusion: this is a download-sandboxing limitation of the
+  Claude Browser pane tool used for testing, not a bug in the app.** The export
+  code path (JSZip generation + blob + `<a download>` trigger) is the same
+  proven pattern used in LaerbarXR's Builder. No code change needed here —
+  flagging that export should be spot-checked once from a real browser (or
+  Morten's own machine) to be fully certain, since that's the one part of this
+  I can't 100% verify from inside this tool.

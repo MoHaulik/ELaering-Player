@@ -1207,10 +1207,7 @@
       if (node.waypoints) {
         for (const wp of node.waypoints) {
           if (!wp.target) continue;
-          const wpMesh = createTextPlane('➤ ' + (wp.label || 'Gå til'), {
-            width: 420, height: 130, fontSize: 36, backgroundColor: 'rgba(17,24,39,0.85)',
-            textColor: 'white', fontWeight: '600', scale: 0.85
-          });
+          const wpMesh = createWaypointMarker(wp.label);
           positionMeshFromXY(wpMesh, wp.x !== undefined ? wp.x : 50, wp.y !== undefined ? wp.y : 50, 6.5);
           wpMesh.userData = {
             isOverlay: true, isChoice: true,
@@ -1757,6 +1754,71 @@
         };
         img.onerror = () => resolve(null);
       });
+    }
+
+    // Matterport-style waypoint marker: a floating circular disc with a
+    // directional chevron, not the rectangular text button used for other
+    // choices — this is a distinct navigation affordance and should read as
+    // one at a glance, even before the gaze-dwell ring starts filling.
+    function createWaypointMarker(label) {
+      const size = 256;
+      const canvas = document.createElement('canvas');
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      const cx = size / 2, cy = size / 2;
+
+      // Soft outer halo, then the solid disc, then a thin dark ring so the
+      // disc reads clearly against both bright and dark video backgrounds.
+      ctx.beginPath();
+      ctx.arc(cx, cy, size * 0.47, 0, Math.PI * 2);
+      const halo = ctx.createRadialGradient(cx, cy, size * 0.30, cx, cy, size * 0.47);
+      halo.addColorStop(0, 'rgba(255,255,255,0.35)');
+      halo.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = halo;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, size * 0.35, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.fill();
+      ctx.lineWidth = size * 0.018;
+      ctx.strokeStyle = 'rgba(17,24,39,0.85)';
+      ctx.stroke();
+
+      // Upward chevron — the "step forward here" cue Matterport uses on its floor dots.
+      ctx.fillStyle = '#111827';
+      ctx.beginPath();
+      const a = size * 0.115;
+      ctx.moveTo(cx, cy - a);
+      ctx.lineTo(cx + a * 0.95, cy + a * 0.65);
+      ctx.lineTo(cx + a * 0.35, cy + a * 0.65);
+      ctx.lineTo(cx + a * 0.35, cy + a * 1.35);
+      ctx.lineTo(cx - a * 0.35, cy + a * 1.35);
+      ctx.lineTo(cx - a * 0.35, cy + a * 0.65);
+      ctx.lineTo(cx - a * 0.95, cy + a * 0.65);
+      ctx.closePath();
+      ctx.fill();
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const geo = new THREE.CircleGeometry(0.42, 48);
+      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
+      const disc = new THREE.Mesh(geo, mat);
+      disc.userData.__baseScale = 1;
+
+      // A short caption below the disc — Matterport shows this as a hover
+      // tooltip, but gaze-based VR has no hover state, so it stays visible
+      // whenever the marker is, kept small so it doesn't compete with the disc.
+      if (label) {
+        const labelMesh = createTextPlane(label, {
+          width: 360, height: 90, fontSize: 30, backgroundColor: 'rgba(17,24,39,0.72)',
+          textColor: 'white', fontWeight: '600', scale: 0.5
+        });
+        labelMesh.position.set(0, -0.62, 0.01);
+        disc.add(labelMesh);
+      }
+
+      return disc;
     }
 
     function createTextPlane(text, options = {}) {
