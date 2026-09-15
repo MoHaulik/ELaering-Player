@@ -1088,8 +1088,15 @@
       if (node.textOverlays) {
         for (const to of node.textOverlays) {
           // Optional formatting fields (§5.1) — all default to the previous look.
+          // Spec ID:01_14A: an information-text overlay needs a frame and must be
+          // semi-transparent. bgAlpha (author-set, 10-100) composes with the plain
+          // hex background color into a real rgba — the color picker itself has no
+          // alpha channel, so this is the only place transparency can come from.
+          // `border` draws the same hue at full opacity as a solid rim around the
+          // translucent fill, which is the frame the spec calls for.
           const textMesh = createTextPlane(to.text || '', {
-            backgroundColor: to.color || 'rgba(255, 255, 255, 0.95)',
+            backgroundColor: hexToRgba(to.color || '#ffffff', to.bgAlpha != null ? to.bgAlpha : 90),
+            border: to.color || '#ffffff',
             textColor: to.textColor || 'black',
             scale: to.scale || 1,
             fontSize: to.fontSize ? parseFloat(to.fontSize) : 32,
@@ -1710,6 +1717,16 @@
       return disc;
     }
 
+    // Composes a plain #rrggbb (the Builder's <input type=color> has no alpha
+    // channel of its own) with an author-set 0-100 opacity into a real rgba()
+    // string — see the textOverlays comment above for why this exists.
+    function hexToRgba(hex, alphaPct) {
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+      if (!m) return `rgba(255,255,255,${(alphaPct != null ? alphaPct : 90) / 100})`;
+      const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+      return `rgba(${r},${g},${b},${(alphaPct != null ? alphaPct : 90) / 100})`;
+    }
+
     function createTextPlane(text, options = {}) {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
@@ -1768,6 +1785,14 @@
       ctx.quadraticCurveTo(0, 0, radius, 0);
       ctx.closePath();
       ctx.fill();
+      // Spec ID:01_14A: the frame around an information-text overlay. Opt-in
+      // (only text overlays pass this) so choice buttons, the exit affordance,
+      // and every other createTextPlane caller keep their existing look.
+      if (options.border) {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = options.border;
+        ctx.stroke();
+      }
 
       // Optional horizontal alignment (§5.1); defaults to centre so existing
       // scenarios render unchanged.
