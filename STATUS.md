@@ -334,3 +334,31 @@ If picking this up cold: read this file top to bottom before assuming
 anything is either done or missing — several early status calls in this
 document were corrected later after actually reading the code or testing
 live, so trust the latest entry over an earlier one where they conflict.
+
+## 2026-09-16 — demo scenario build + a real thumbnail bug found and fixed
+
+Built a full test scenario in the live Builder exercising every ELæring
+feature in one pass (2 self-generated genuinely-stereoscopic 180° test clips —
+real VR180 stereo footage isn't available anywhere freely/clearly licensed,
+checked several camera-manufacturer and stock sources, all either YouTube-
+hosted or unlicensed reviewer uploads — SBS + top/bottom, real narration via
+macOS TTS, waypoint nav, branching question, text overlays with the frame/
+transparency fix, image overlays, fades, background toggle, PIN lock).
+Exported, round-tripped through a fresh Builder (Load) and a fresh Player
+(direct .zip open) with zero data loss, delivered to Morten as two .zip
+files with exact open instructions for Builder/Player/Quest 3.
+
+**While explicitly testing thumbnail display per Morten's request** (checked
+both the small node icon on the canvas AND the bigger preview inside the
+opened Scene editor, not just one): found and fixed a real, two-part bug —
+video thumbnails reverted to the generic gradient placeholder after every
+single reload, in both places, even though the video itself reloaded fine.
+Root causes: (1) `persistProjects()`/`saveState()` needlessly stripped
+`thumb` (a small JSON-safe string) from every autosave alongside the two
+fields that genuinely can't survive a reload (`fileObj`/`url`); (2) even
+after fixing that, `handleVideoPick()`/`compressVideo()` generate the
+thumbnail asynchronously and only ever updated it in memory — never called
+`saveState()` again once it resolved, so the persisted snapshot always
+had `thumb:null` regardless of fix #1. Fixed both, verified end-to-end with
+a real video: attach, reload, thumbnail still there in both places. Pushed
+(`06fedfe`).
