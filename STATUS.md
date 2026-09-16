@@ -362,3 +362,75 @@ thumbnail asynchronously and only ever updated it in memory — never called
 had `thumb:null` regardless of fix #1. Fixed both, verified end-to-end with
 a real video: attach, reload, thumbnail still there in both places. Pushed
 (`06fedfe`).
+
+## 2026-09-16 — launch-blocking gap: no way to create an end screen, + full audit
+
+Morten caught this testing the live demo build: the two end nodes in it only
+existed because I'd created them via direct API calls while scripting the
+build, not through anything clickable. Checked the actual UI and confirmed —
+the `end` node type was fully supported everywhere *downstream* (canvas
+rendering with its own flag icon, the Scene editor's Completion-duration
+field, export, real playback in the Player) but had **zero creation path**
+anywhere in the Builder. The dock's "+" always hardcoded `'video'`; the
+choice/waypoint target pickers only ever listed nodes that already existed.
+A real author could not finish a branching scenario — every branch had to
+dead-end on an ordinary scene, never a proper completion screen.
+
+**Fixed**: "+" now opens a small type-picker popover (Video scene / End
+screen), reusing the exact same popover pattern as Settings — no new visual
+language. Verified end-to-end, not just that the button exists: created an
+end screen through the real menu, confirmed its editor shows Completion
+duration + Duplicate/Delete, confirmed "Video scene" still works with zero
+regression, and wired a real waypoint from a video scene to the new end
+screen through the actual "Jump to" dropdown — the complete authoring path
+a client would use, connection line rendering correctly. Pushed (`f320cd3`).
+
+**Then audited everything else in the demo build** for the same failure
+mode, per Morten's explicit instruction to check now rather than wait to be
+asked. Went through every feature used (background toggle, video
+projection/stereo, narration, text overlays inc. the frame/transparency
+fix, image overlays, waypoints, branching/choices, fades, access-code PIN,
+project naming) by reading the exact function each demo step bypassed and
+independently re-running it through the real UI-equivalent call:
+
+- **Found a second gap of the identical shape**: `renameActiveProject()`
+  existed, fully correct, wired to nothing — no button anywhere let you
+  rename a project once created (only naming at creation time, via New
+  Project, worked). The demo's title was set the same way the end nodes
+  were — because there was nothing to click. **Fixed**: a rename (pencil)
+  icon on the active row in the project switcher, opening a modal that
+  mirrors New Project exactly. Verified: renamed through the real menu,
+  header updates immediately, survives a reload. Pushed (`a69229e`).
+- **Everything else checked out clean** — confirmed by reading the exact
+  handler each shortcut bypassed and re-running the real equivalent live,
+  not just by inspecting code: background toggle (identical function call,
+  not a different path at all), video projection/stereo selects
+  (`data-asset-prop` onchange handler, functionally identical to the direct
+  assignment used), text overlay add+edit (`addOverlay('text')` produces
+  the exact same field set as the direct push; ran a live test through
+  `addOverlay`+`updateOverlay` for every field — bgAlpha, color, position,
+  scale, timing — all correctly typed/clamped), image overlay position/
+  timing editing (`updateOverlay('image', ...)`, full field parity),
+  narration (**`handleAudioPick()` already sets `node.narration` itself** —
+  the demo's direct assignment was pure redundant duplication of something
+  the real picker already does, not a bypass of anything; Start-time field
+  confirmed present), waypoints (already independently verified while
+  testing the end-node fix — `addWaypoint`+`updateWaypoint` through the
+  real "Tap the preview to place a waypoint" flow), branching/choices
+  (`createQuestion()`+`addChoice()`+`updateChoice()` produce the same
+  fields the demo set directly; one cosmetic difference found — the real
+  flow also stamps a `choice.id`, which is written but never read
+  anywhere in either app, zero functional effect), fade in/out (generic
+  `data-node-prop` slider handler, same as direct assignment), access-code
+  PIN (the Lock modal itself was already independently verified working
+  in a separate session — wrong code rejected, correct code accepted —
+  the demo build's shortcut there was pure convenience, not covering for
+  something missing), New Project creation (not used in the demo at all,
+  checked anyway for completeness — works correctly).
+
+**Bottom line for the two already-delivered demo .zip files**: every field
+in them is something the real Builder UI can genuinely produce — confirmed
+by exercising the actual controls, not by assumption — with the one
+exception of the end-screen nodes and the project title, both of which
+needed today's fixes to become buildable by a real author and are fixed now.
+No other feature in that build was faked.
