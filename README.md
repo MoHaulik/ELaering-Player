@@ -19,6 +19,13 @@ An independent client product ("E-Læring") for gaze-controlled WebXR playback.
   device at the end of a run — there is simply no dashboard to auto-push them to;
   re-download the last saved run any time from the landing screen.
 
+## Viewing on a normal screen
+
+"Run on this screen" (and the Builder's embedded preview) now works like any
+360° viewer: click-and-drag to look all the way round, scroll or ± to zoom,
+arrow keys, and click an answer or waypoint to choose it. In the headset,
+selection stays gaze-based.
+
 ## Dependencies
 
 Vendored — this page loads nothing from a third-party CDN, and makes no network

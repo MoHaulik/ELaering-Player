@@ -75,6 +75,13 @@
     .xr-active .exit-xr { display: flex; }
     .xr-active #overlay { display: none; }
     video { display: none; }
+    /* Flat (no-headset) preview: how to look around / choose. */
+    #flat-help { position: fixed; left: 16px; bottom: 16px; z-index: 9998; display: none; align-items: center; gap: 8px; background: rgba(23,23,27,0.88); border: 1px solid var(--border-soft); color: var(--text); font-size: 12px; padding: 7px 8px 7px 12px; border-radius: 12px; box-shadow: var(--shadow-lg); }
+    .flat-active #flat-help { display: flex; }
+    #flat-help button { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--surface-2); color: var(--text); font-size: 16px; font-weight: 700; cursor: pointer; line-height: 1; }
+    #flat-help button:hover { background: var(--field-bg); }
+    .flat-active canvas { cursor: grab; }
+    .flat-active.flat-dragging canvas { cursor: grabbing; }
 
     /* Access-code gate (spec ID:02_07) — same scrim/modal-box language as the Builder. */
     .solo-modal { display: none; position: fixed; inset: 0; background: rgba(4,4,6,0.6); align-items: center; justify-content: center; z-index: 10500; padding: 20px; box-sizing: border-box; }
@@ -124,6 +131,7 @@
   </div>
 
   <button class="exit-xr" id="exit-xr" aria-label="Exit VR">×</button>
+  <div id="flat-help"><span>Drag to look around 360° · scroll to zoom · click an answer or waypoint</span><button type="button" id="flat-zoom-out" title="Zoom out">−</button><button type="button" id="flat-zoom-in" title="Zoom in">+</button></div>
   <div id="status"></div>
 
   <!-- Scenario access code (req. ID:02_07) — a scenario authored with a code
@@ -250,13 +258,22 @@
     // A scenario authored with an access code (§ code-gate-modal) still needs
     // that code typed in before it begins — see attemptStart() below.
     let previewEmbedMode = false;
+    let previewSingleScene = false; // Builder "this scene only": end instead of moving on
+    let previewStartTime = 0;       // Builder "preview from here": first node starts at this video time
+    let pendingSeek = null;         // a seek (trim start / preview start) that must land before the timeline runs
+    let pendingFadeIn = 0;          // per-node fade in (spec 02_11 / Builder "Fade in from black")
+    let fadeOutStarted = false;     // per-node fade out already running
+    let nodeEndTime = 0;            // trimmed end (video time) for the current node, 0 = natural end
+    let mediaVideos = [];           // flat video overlays (Media tab) currently in the scene
+    const _headPos = new THREE.Vector3();
 
     // Loads the first node of the scenario. Split out from beginScenario() so
     // the code-gate (below) can defer it until the correct code is entered.
     function proceedToFirstNode() {
       currentNode = sessionData.nodes.find(n => n.id === sessionData.startNode);
       if (currentNode) {
-        loadNode(currentNode);
+        loadNode(currentNode, previewStartTime);
+        previewStartTime = 0;
         // BUGFIX: selectChoice() schedules auto-termination whenever a choice or
         // auto-advance leads INTO an end node, but a scenario whose START node is
         // itself an end node (e.g. authored by mistake via "Set as Start", or a
@@ -359,7 +376,8 @@
       contentGroup.add(videoMeshR);
 
       // Camera-locked black fade plane (spec ID:02_09/10/11) — always in front, opacity 0 until used.
-      const fadeGeo = new THREE.PlaneGeometry(4, 4);
+      // Big enough to cover even a zoomed-out, wide flat preview window.
+      const fadeGeo = new THREE.PlaneGeometry(40, 40);
       const fadeMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false });
       fadeMesh = new THREE.Mesh(fadeGeo, fadeMat);
       fadeMesh.position.set(0, 0, -1.2);
@@ -384,13 +402,33 @@
 
       // Video-readiness signals (§4.2/§4.3): the node timeline is held at 0 until a
       // real first frame exists, so timed overlays never fire over a black sphere.
-      videoElement.addEventListener('loadeddata', () => { videoReady = true; clearVideoLoadTimer(); });
-      videoElement.addEventListener('playing',    () => { videoReady = true; clearVideoLoadTimer(); });
+      // With a pending seek (trimmed start / "preview from here") the clip only
+      // counts as ready once the seek has landed — otherwise the timeline would
+      // start at 0 and then jump, firing everything in between at once.
+      videoElement.addEventListener('loadeddata', () => { clearVideoLoadTimer(); if (pendingSeek === null) videoReady = true; });
+      videoElement.addEventListener('playing',    () => { clearVideoLoadTimer(); if (pendingSeek === null) videoReady = true; });
+      videoElement.addEventListener('loadedmetadata', () => {
+        if (pendingSeek !== null) {
+          const d = videoElement.duration;
+          const t = isFinite(d) && d > 0 ? Math.min(pendingSeek, Math.max(0, d - 0.2)) : pendingSeek;
+          try { videoElement.currentTime = t; } catch (_) { pendingSeek = null; }
+        }
+      });
+      videoElement.addEventListener('seeked', () => {
+        if (pendingSeek === null) return;
+        pendingSeek = null;
+        lastVideoTime = videoElement.currentTime;
+        nodeTimer = videoElement.currentTime;
+        videoReady = true;
+        clearVideoLoadTimer();
+      });
       videoElement.addEventListener('error',      markVideoFailed);
 
       buildLoadingPlane();
 
       window.addEventListener('resize', onWindowResize);
+      document.getElementById('flat-zoom-in').addEventListener('click', () => setFlatFov(camera.fov - 10));
+      document.getElementById('flat-zoom-out').addEventListener('click', () => setFlatFov(camera.fov + 10));
       startButton.addEventListener('click', function () { attemptStart(startXR); });
       previewButton.addEventListener('click', function () { attemptStart(startFlatPreview); });
       exitButton.addEventListener('click', endSession);
@@ -695,6 +733,8 @@
 
         sessionData = msg.scenario;
         if (!sessionData || !sessionData.nodes) return;
+        previewSingleScene = !!msg.singleScene;
+        previewStartTime = Math.max(0, parseFloat(msg.startTime) || 0);
 
         if (xrSession) { try { xrSession.end(); } catch (_) {} }
         if (flatPreview) { flatPreview = false; renderer.setAnimationLoop(null); }
@@ -718,6 +758,8 @@
         if (currentNode && currentNode.id === msg.node.id) { currentNode = msg.node; loadNode(msg.node); }
         return;
       }
+
+      if (msg.type === 'lxrPreviewSingle') { previewSingleScene = !!msg.single; return; }
 
       if (msg.type === 'lxrPreviewGoto') {
         // Author clicked Restart / Back / Continue / jump-to-node in the
@@ -784,25 +826,86 @@
     function startFlatPreview() {
       if (!sessionData || flatPreview || xrSession) return;
       flatPreview = true;
-      document.body.classList.add('xr-active');
+      document.body.classList.add('xr-active', 'flat-active');
       camera.position.set(0, 0, 0);
+      camera.rotation.order = 'YXZ';
       camera.rotation.set(0, 0, 0);
-      renderer.domElement.addEventListener('pointermove', onFlatPointerMove);
+      flatYaw = 0; flatPitch = 0;
+      setFlatFov(70);
+      renderer.domElement.addEventListener('pointerdown', onFlatPointerDown);
+      renderer.domElement.addEventListener('wheel', onFlatWheel, { passive: false });
+      window.addEventListener('keydown', onFlatKey);
       renderer.setAnimationLoop(render);
-      updateStatus('Preview mode — move the mouse to look, hold the cursor on an answer to choose');
+      updateStatus('Preview — drag to look around 360°, scroll to zoom, click an answer (or hold the centre ring on it)');
       beginScenario();
     }
 
-    // Mouse position maps to yaw/pitch across the same ±45° / ±25° arc the author
-    // sees in the builder's safe-zone guide, so what is reachable here is what is
-    // reachable in the headset.
-    function onFlatPointerMove(e) {
-      if (!flatPreview) return;
-      const nx = (e.clientX / window.innerWidth) * 2 - 1;
-      const ny = (e.clientY / window.innerHeight) * 2 - 1;
+    // Flat preview look controls. The old version mapped the mouse POSITION to
+    // a fixed ±55° window, so you could never see more than ~180° of a 360°
+    // clip ("I can't figure out how to look all the way round"). Now it's
+    // click-and-drag like any 360° viewer: unlimited turning, ±85° up/down,
+    // scroll/± to zoom, arrow keys too. A plain click on an answer, waypoint,
+    // "Play" or "Hear again" selects it directly (the centre-ring dwell still
+    // works too, exactly as in the headset).
+    let flatYaw = 0, flatPitch = 0, flatDrag = null;
+    function applyFlatLook() {
       camera.rotation.order = 'YXZ';
-      camera.rotation.y = -nx * (Math.PI / 180 * 55);
-      camera.rotation.x = -ny * (Math.PI / 180 * 35);
+      camera.rotation.y = flatYaw;
+      camera.rotation.x = flatPitch;
+    }
+    function setFlatFov(f) {
+      camera.fov = Math.max(30, Math.min(100, f));
+      camera.updateProjectionMatrix();
+    }
+    function onFlatPointerDown(e) {
+      if (!flatPreview || e.button !== 0) return;
+      flatDrag = { x: e.clientX, y: e.clientY, yaw: flatYaw, pitch: flatPitch, moved: false };
+      try { renderer.domElement.setPointerCapture(e.pointerId); } catch (_) {}
+      renderer.domElement.addEventListener('pointermove', onFlatPointerMove);
+      renderer.domElement.addEventListener('pointerup', onFlatPointerUp);
+      renderer.domElement.addEventListener('pointercancel', onFlatPointerUp);
+    }
+    function onFlatPointerMove(e) {
+      if (!flatPreview || !flatDrag) return;
+      const dx = e.clientX - flatDrag.x, dy = e.clientY - flatDrag.y;
+      if (!flatDrag.moved && Math.abs(dx) + Math.abs(dy) > 4) { flatDrag.moved = true; document.body.classList.add('flat-dragging'); }
+      if (!flatDrag.moved) return;
+      const radPerPx = THREE.MathUtils.degToRad(camera.fov) / window.innerHeight;
+      flatYaw = flatDrag.yaw + dx * radPerPx;
+      flatPitch = Math.max(-1.48, Math.min(1.48, flatDrag.pitch + dy * radPerPx));
+      applyFlatLook();
+    }
+    function onFlatPointerUp(e) {
+      renderer.domElement.removeEventListener('pointermove', onFlatPointerMove);
+      renderer.domElement.removeEventListener('pointerup', onFlatPointerUp);
+      renderer.domElement.removeEventListener('pointercancel', onFlatPointerUp);
+      document.body.classList.remove('flat-dragging');
+      const d = flatDrag; flatDrag = null;
+      if (!d || d.moved || !flatPreview || e.type === 'pointercancel') return;
+      // Click → select whatever gaze target is under the cursor.
+      const ndc = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+      const rc = new THREE.Raycaster();
+      rc.setFromCamera(ndc, camera);
+      const hit = rc.intersectObjects(getVisibleChoices(), false)[0];
+      if (hit && hit.object.userData.choiceData) selectChoice(hit.object.userData.choiceData);
+    }
+    function onFlatWheel(e) {
+      if (!flatPreview) return;
+      e.preventDefault();
+      setFlatFov(camera.fov + Math.max(-10, Math.min(10, e.deltaY * 0.04)));
+    }
+    function onFlatKey(e) {
+      if (!flatPreview) return;
+      const step = THREE.MathUtils.degToRad(10);
+      if (e.key === 'ArrowLeft') flatYaw += step;
+      else if (e.key === 'ArrowRight') flatYaw -= step;
+      else if (e.key === 'ArrowUp') flatPitch = Math.min(1.48, flatPitch + step);
+      else if (e.key === 'ArrowDown') flatPitch = Math.max(-1.48, flatPitch - step);
+      else if (e.key === '+' || e.key === '=') setFlatFov(camera.fov - 10);
+      else if (e.key === '-') setFlatFov(camera.fov + 10);
+      else return;
+      e.preventDefault();
+      applyFlatLook();
     }
 
     function onSessionStarted(session) {
@@ -832,7 +935,14 @@
     }
 
     function onSessionEnd() {
-      document.body.classList.remove('xr-active');
+      document.body.classList.remove('xr-active', 'flat-active', 'flat-dragging');
+      window.removeEventListener('keydown', onFlatKey);
+      renderer.domElement.removeEventListener('pointerdown', onFlatPointerDown);
+      renderer.domElement.removeEventListener('wheel', onFlatWheel);
+      flatDrag = null;
+      contentGroup.position.set(0, 0, 0);
+      stopMediaVideos();
+      pendingSeek = null; pendingFadeIn = 0;
       renderer.setAnimationLoop(null);
       xrSession = null;
       flatPreview = false;
@@ -840,6 +950,7 @@
       clearVideoLoadTimer();
       showLoading(false);
       renderer.domElement.removeEventListener('pointermove', onFlatPointerMove);
+      if (camera.fov !== 70) setFlatFov(70);
       videoElement.pause();
       videoElement.removeAttribute('src');
       videoElement.load();
@@ -901,7 +1012,12 @@
       currentStereo = stereo;
 
       videoMesh.geometry.dispose();
-      videoMesh.geometry = makeProjectionGeometry(proj);
+      // videoMesh is what every NON-stereo view shows — including the flat
+      // preview of a 3D clip. Built from the full frame it showed both eyes'
+      // pictures side by side / stacked ("3D can't be seen in preview");
+      // cropped to the left eye it shows one correct picture. In a headset a
+      // 3D clip uses videoMeshL/R instead, so this never affects real 3D.
+      videoMesh.geometry = stereo === 'mono' ? makeProjectionGeometry(proj) : makeProjectionGeometry(proj, stereo, 'left');
 
       videoMeshL.geometry.dispose();
       videoMeshR.geometry.dispose();
@@ -992,7 +1108,7 @@
       // itself is a fixed, exit-safe spot (PLAY_GATE_PCT_Y); playGateScale (computed
       // in loadNode, per node) shrinks the button instead when a long question with
       // many answers reaches down far enough to otherwise crowd it.
-      positionMeshFromXY(btn, 50, PLAY_GATE_PCT_Y, 6.0);
+      placeUi(btn, 50, PLAY_GATE_PCT_Y, 6.0, currentNode);
       btn.scale.setScalar(playGateScale);
       btn.name = 'playGate';
       btn.userData = { isChoice: true, choiceData: { __retryPlay: true, label: 'play_gate' } };
@@ -1021,12 +1137,34 @@
     }
 
     // === Node Logic ===
-    async function loadNode(node) {
+    // startAt (optional): begin this node at a point in the video — used by the
+    // Builder's "Preview from here". A trimmed start (node.trimStart) applies
+    // the same way on every visit.
+    async function loadNode(node, startAt) {
       if (previewEmbedMode) { try { parent.postMessage({ type: 'lxrPreviewNode', nodeId: node.id }, '*'); } catch (_) {} }
       orientContentToStart(node);
+      stopMediaVideos();
       clearOverlays();
-      nodeTimer = 0;
-      lastVideoTime = 0;
+      const trimStart = Math.max(0, parseFloat(node.trimStart) || 0);
+      const trimEnd = Math.max(0, parseFloat(node.trimEnd) || 0);
+      nodeEndTime = trimEnd > trimStart ? trimEnd : 0;
+      const startOffset = Math.max(trimStart, parseFloat(startAt) || 0);
+      pendingSeek = null;
+      fadeOutStarted = false;
+      // Fade in from black (Builder: "Fade in from black"). These per-scene
+      // values were authored in the Builder but the Player never read them —
+      // that's why changing them "had no effect". Held black until the clip
+      // actually shows its first frame, then faded up (see render()).
+      const fi = parseFloat(node.fadeIn) || 0;
+      pendingFadeIn = 0;
+      if (fi > 0 && node.type !== 'end') {
+        fadeState = null;
+        fadeMesh.material.opacity = 1;
+        fadeMesh.visible = true;
+        pendingFadeIn = fi;
+      }
+      nodeTimer = startOffset;
+      lastVideoTime = startOffset;
       videoStalledFor = 0;
       videoReady = false;
       videoFailed = false;
@@ -1058,6 +1196,7 @@
           narrationAudio.removeAttribute('src');
         }
         if (videoSrc) {
+          if (startOffset > 0) pendingSeek = startOffset;
           playVideo(videoSrc);
           // Hard wall-clock timeout, independent of any video event AND of the rAF
           // render loop. Some malformed clips (e.g. a truncated file) never fire
@@ -1071,13 +1210,34 @@
         }
         else { videoFailed = true; showLoading(false); }  // referenced clip absent
       }
+      // Builder preview only: say WHY a scene shows nothing, instead of a
+      // silent black sphere (a learner never sees this).
+      if (previewEmbedMode && node.type !== 'end' && (!node.video || !assetCache[node.video])) {
+        const note = createTextPlane(node.video ? 'Video file missing on this computer — re-attach it in the Builder' : 'This scene has no video yet', {
+          width: 900, height: 120, fontSize: 40, backgroundColor: 'rgba(229,72,77,0.9)', textColor: 'white', fontWeight: '600', scale: 0.9
+        });
+        placeUi(note, 50, 35, 6, node);
+        note.userData = { isOverlay: true, startTime: 0, endTime: 8 };
+        overlaysGroup.add(note);
+      }
 
       if (node.imageOverlays) {
         for (const io of node.imageOverlays) {
+          // Media tab: a flat video clip shown inside the scene.
+          if (io.kind === 'video') {
+            if (!io.videoId || !assetCache[io.videoId]) continue;
+            const vm = createVideoPlane(assetCache[io.videoId], io);
+            placeItem(vm, io, 7.5);
+            vm.userData = Object.assign(vm.userData, { startTime: io.time || 0, endTime: (io.time || 0) + (io.duration || 10), isOverlay: true });
+            vm.visible = false;
+            overlaysGroup.add(vm);
+            continue;
+          }
           if (!io.imageId || !assetCache[io.imageId]) continue;
           const mesh = await createImagePlane(assetCache[io.imageId], { scale: io.scale || 1 });
+          if (currentNode !== node) { if (mesh) disposeNode(mesh); return; } // moved on while the image loaded
           if (mesh) {
-            positionMeshFromXY(mesh, io.x, io.y, 7.5);
+            placeItem(mesh, io, 7.5);
             mesh.userData = { startTime: io.time || 0, endTime: (io.time || 0) + (io.duration || 5), isOverlay: true };
             mesh.visible = false;
             overlaysGroup.add(mesh);
@@ -1103,7 +1263,7 @@
             fontWeight: to.fontWeight || 'normal',
             align: to.align || 'center'
           });
-          positionMeshFromXY(textMesh, to.x, to.y, 7);
+          placeItem(textMesh, to, 7);
           textMesh.userData = { startTime: to.time || 0, endTime: (to.time || 0) + (to.duration || 3), isOverlay: true };
           textMesh.visible = false;
           overlaysGroup.add(textMesh);
@@ -1117,7 +1277,8 @@
         for (const wp of node.waypoints) {
           if (!wp.target) continue;
           const wpMesh = createWaypointMarker(wp.label);
-          positionMeshFromXY(wpMesh, wp.x !== undefined ? wp.x : 50, wp.y !== undefined ? wp.y : 50, 6.5);
+          placeItem(wpMesh, wp, 6.5);
+          if (wp.floor) layWaypointFlat(wpMesh, wp);
           wpMesh.userData = {
             isOverlay: true, isChoice: true,
             startTime: wp.time || 0, endTime: (wp.time || 0) + (wp.duration || 6),
@@ -1137,7 +1298,7 @@
           width: 380, height: 120, fontSize: 34, backgroundColor: 'rgba(17,24,39,0.75)',
           textColor: 'white', fontWeight: '600', scale: 0.65
         });
-        positionMeshFromXY(hearMesh, 12, 96, 5.5);
+        placeUi(hearMesh, 12, 96, 5.5, node);
         hearMesh.userData = {
           isOverlay: true, startTime: node.narration.startTime || 0, endTime: Infinity,
           isChoice: true, choiceData: { __hearAgain: true, label: 'hear_again' }
@@ -1231,7 +1392,14 @@
         // stay predictable); instead the content block shrinks uniformly if it
         // would otherwise encroach. In the ordinary case (a question and a
         // couple of short-to-medium answers) this never triggers at all.
-        const qPctY = Math.min(node.questionY !== undefined ? parseFloat(node.questionY) : 50, 80);
+        // Builder now stores the question's placement as angles (questionYaw /
+        // questionPitch, pitch already limited to the exit-safe band); older
+        // scenarios use questionX/Y. Both end up as the same pctY here so the
+        // exit-avoidance maths below is unchanged.
+        const qHasAngles = isFinite(parseFloat(node.questionYaw)) && isFinite(parseFloat(node.questionPitch));
+        const qPctY = qHasAngles
+          ? Math.min(Math.max(0, 50 - parseFloat(node.questionPitch) / 0.5), 80)
+          : Math.min(node.questionY !== undefined ? parseFloat(node.questionY) : 50, 80);
         const ARC_DEG = 50, EXIT_MARGIN_DEG = 3, qRadius = 6.5;
         const pitchAtAnchorDeg = (50 - qPctY) / 100 * ARC_DEG;
         const pitchAtExitDeg = (50 - EXIT_PCT_Y) / 100 * ARC_DEG;
@@ -1265,7 +1433,8 @@
           ));
         }
 
-        positionMeshFromXY(qGroup, node.questionX || 50, qPctY, qRadius);
+        if (qHasAngles) placeAtAngles(qGroup, parseFloat(node.questionYaw), (50 - qPctY) / 100 * 50, qRadius);
+        else positionMeshFromXY(qGroup, node.questionX || 50, qPctY, qRadius);
         qGroup.userData = { startTime: node.questionTime || 0, endTime: Infinity, isOverlay: true };
         qGroup.visible = false;
         overlaysGroup.add(qGroup);
@@ -1281,7 +1450,7 @@
           width: 360, height: 120, fontSize: 40,
           backgroundColor: 'rgba(17,24,39,0.75)', textColor: '#fca5a5', fontWeight: '600', scale: 0.7
         });
-        positionMeshFromXY(exitMesh, 50, 96, 5.5);
+        placeUi(exitMesh, 50, 96, 5.5, node);
         exitMesh.userData = { isChoice: true, choiceData: { __exit: true, label: 'exit' }, dwell: Math.max(2.5, currentDwell * 1.5) };
         attachProgressRing(exitMesh);
         overlaysGroup.add(exitMesh);
@@ -1303,9 +1472,39 @@
       mesh.add(ring);
     }
 
+    // Places a mesh at an explicit view angle (degrees; yaw right-positive,
+    // pitch up-positive) in content space — the same space positionMeshFromXY
+    // uses, so both agree exactly for the same spot.
+    function placeAtAngles(mesh, yawDeg, pitchDeg, radius) {
+      const yaw = THREE.MathUtils.degToRad(yawDeg || 0);
+      const pitch = THREE.MathUtils.degToRad(Math.max(-89, Math.min(89, pitchDeg || 0)));
+      mesh.position.set(
+        radius * Math.sin(yaw) * Math.cos(pitch),
+        radius * Math.sin(pitch),
+        -radius * Math.cos(yaw) * Math.cos(pitch)
+      );
+      mesh.lookAt(0, 0, 0);
+    }
+    // Builder now stores real angles (yaw/pitch) for overlays and waypoints so
+    // they can go anywhere in the 360° — behind the learner or down on the
+    // floor. Older scenarios only have x/y (the ±45°/±25° window): fall back.
+    function hasAngles(o) { return o && isFinite(parseFloat(o.yaw)) && isFinite(parseFloat(o.pitch)); }
+    function placeItem(mesh, o, radius) {
+      if (hasAngles(o)) placeAtAngles(mesh, parseFloat(o.yaw), parseFloat(o.pitch), radius);
+      else positionMeshFromXY(mesh, o.x !== undefined ? o.x : 50, o.y !== undefined ? o.y : 50, radius);
+    }
+    // System UI (exit, "hear again", play gate) follows the scene's start
+    // direction, so it's in front of the learner rather than at a fixed
+    // spot that could be behind them when a start direction is set.
+    function placeUi(mesh, pctX, pctY, radius, node) {
+      const sy = node && parseFloat(node.startYaw) || 0;
+      const yawDeg = (pctX - 50) / 100 * 90 + sy;
+      const pitchDeg = (50 - pctY) / 100 * 50;
+      placeAtAngles(mesh, yawDeg, pitchDeg, radius);
+    }
+
     // Map the builder's FLAT 16:9 frame to a forward-facing arc.
-    // ±45° horizontal / ±25° vertical ≈ 16:9, so authoring is WYSIWYG and
-    // everything stays inside the gaze-reachable forward field of view.
+    // ±45° horizontal / ±25° vertical ≈ 16:9 (older scenarios' x/y placement).
     function positionMeshFromXY(mesh, pctX, pctY, radius) {
       pctX = pctX !== undefined ? pctX : 50;
       pctY = pctY !== undefined ? pctY : 50;
@@ -1350,6 +1549,9 @@
 
       updateGazeProgress(0);
 
+      // Builder "This scene only": the scene is over — don't move on.
+      if (previewSingleScene) { fadeAndEnd(); return; }
+
       // Direct vs. smooth transition (spec ID:02_09/02_10): a choice/waypoint can
       // override its node's default; the scenario-wide default is 'smooth'.
       const mode = choice.transition || currentNode.transition || 'smooth';
@@ -1363,7 +1565,12 @@
           // re-fire auto-nav into the end node, writing phantom/duplicate rows.
           currentNode = nextNode;
           loadNode(nextNode);
-          if (mode === 'smooth') fadeTo(0, SCENE_FADE_SEC);
+          // A scene with its own "fade in" takes over the fade (loadNode set it
+          // up). Otherwise: smooth fades back up; a direct cut must also clear
+          // any black left by the previous scene's "fade out".
+          if (pendingFadeIn > 0) { /* handled in render() */ }
+          else if (mode === 'smooth') fadeTo(0, SCENE_FADE_SEC);
+          else { fadeState = null; fadeMesh.material.opacity = 0; fadeMesh.visible = false; }
           if (nextNode.type === 'end') {
             // Honour the end node's authored duration, falling back to 3s (§2.2).
             const secs = parseFloat(nextNode.duration);
@@ -1385,7 +1592,9 @@
     // Fade to black over END_FADE_SEC before actually tearing the session down
     // (spec ID:02_11 — "fade to black" over 3-5s at the very end of a scenario).
     function fadeAndEnd() {
-      fadeTo(1, END_FADE_SEC, endSession);
+      // Already black (scene faded out)? Don't sit on black for 4 more seconds.
+      const alreadyBlack = fadeMesh.visible && fadeMesh.material.opacity > 0.98;
+      fadeTo(1, alreadyBlack ? 0.3 : END_FADE_SEC, endSession);
     }
 
     // Ends the run whether it is a headset session or a flat preview. Idempotent
@@ -1408,6 +1617,22 @@
       // so content in the middle of a run can never be silently skipped.
       const dt = Math.min(clock.getDelta(), MAX_DT);
       let currentTime = 0;
+
+      // Keep the 360° world centred on the learner's head. With a floor-level
+      // reference space the head is ~1.6 m above the sphere's centre, which
+      // shifts and distorts the picture (things look too close / the horizon
+      // sits wrong). Every 360° player locks the video to the head position;
+      // turning the head still looks around as normal.
+      if (renderer.xr.isPresenting) {
+        try {
+          const cams = renderer.xr.getCamera().cameras;
+          if (cams && cams.length) {
+            _headPos.setFromMatrixPosition(cams[0].matrix);
+            if (cams[1]) { const x = _headPos.x, y = _headPos.y, z = _headPos.z; _headPos.setFromMatrixPosition(cams[1].matrix); _headPos.set((x + _headPos.x) / 2, (y + _headPos.y) / 2, (z + _headPos.z) / 2); }
+            contentGroup.position.copy(_headPos);
+          }
+        } catch (_) {}
+      }
 
       // Re-checked every frame (cheap: a couple of booleans + mesh.visible sets) rather
       // than only at the call sites that change stereo/visibility state, because
@@ -1438,6 +1663,10 @@
           }
         }
         if (videoReady) showLoading(false);
+        if (pendingFadeIn > 0) { fadeTo(0, pendingFadeIn); pendingFadeIn = 0; }
+
+        // Trimmed end: stop the clip there (the node then ends below).
+        if (nodeHasVideo && nodeEndTime > 0 && !videoElement.paused && videoElement.currentTime >= nodeEndTime) videoElement.pause();
 
         // ---- MONOTONIC SCENARIO CLOCK ----
         // The clock is advanced by deltas and can only move forward: the video drives
@@ -1469,12 +1698,15 @@
             child.visible = currentTime >= child.userData.startTime && currentTime <= child.userData.endTime;
           }
         });
+        if (mediaVideos.length) syncMediaVideos(currentTime);
 
         // Narration (§1_12A/B) — fires once, at its authored start time.
         if (!narrationPlayed && currentNode.narration && currentNode.narration.file &&
             currentTime >= (currentNode.narration.startTime || 0)) {
           narrationPlayed = true;
-          try { narrationAudio.currentTime = 0; narrationAudio.play(); } catch (e) {}
+          // Started part-way into the scene (trim / "preview from here"): pick
+          // the narration up at the matching point instead of from the top.
+          try { narrationAudio.currentTime = Math.max(0, currentTime - (currentNode.narration.startTime || 0)); narrationAudio.play(); } catch (e) {}
         }
 
         // Auto-advance / terminate. The always-present exit affordance, waypoints and
@@ -1489,9 +1721,22 @@
         let ended;
         if (nodeHasVideo && !videoFailed) {
           const vdur = videoElement.duration;
-          ended = videoElement.ended || (isFinite(vdur) && vdur > 0 && currentTime >= vdur);
+          ended = videoElement.ended || (isFinite(vdur) && vdur > 0 && currentTime >= vdur) || (nodeEndTime > 0 && currentTime >= nodeEndTime);
         } else {
           ended = currentTime >= (parseFloat(currentNode.duration) || 10);
+        }
+
+        // Fade out to black over the last N seconds of the scene — never while
+        // a question is still waiting for an answer.
+        const fo = parseFloat(currentNode.fadeOut) || 0;
+        if (fo > 0 && !fadeOutStarted && !choicesPending && currentNode.type !== 'end' && !isTransitioning) {
+          let endT = 0;
+          if (nodeHasVideo && !videoFailed) { const vd = videoElement.duration; endT = nodeEndTime > 0 ? nodeEndTime : (isFinite(vd) ? vd : 0); }
+          else endT = parseFloat(currentNode.duration) || 10;
+          if (endT > 0 && currentTime >= endT - fo) {
+            fadeOutStarted = true;
+            fadeTo(1, Math.max(0.1, Math.min(fo, endT - currentTime)));
+          }
         }
 
         if (!choicesPending && ended) {
@@ -1650,6 +1895,61 @@
         };
         img.onerror = () => resolve(null);
       });
+    }
+
+    // Media tab: a flat video "screen" inside the scene. Plays from the right
+    // point whenever it becomes visible on the timeline, pauses when hidden.
+    function createVideoPlane(src, io) {
+      const v = document.createElement('video');
+      v.src = src; v.playsInline = true; v.preload = 'auto';
+      v.muted = !!io.muted; v.loop = !!io.loop;
+      const tex = new THREE.VideoTexture(v);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter;
+      const h = 4 * (io.scale || 1);
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(h * 16 / 9, h), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+      v.addEventListener('loadedmetadata', () => {
+        const a = (v.videoWidth && v.videoHeight) ? v.videoWidth / v.videoHeight : 16 / 9;
+        mesh.geometry.dispose();
+        mesh.geometry = new THREE.PlaneGeometry(h * a, h);
+      });
+      const entry = { mesh, v, start: io.time || 0, playing: false };
+      mesh.userData.mediaVideo = entry;
+      mediaVideos.push(entry);
+      return mesh;
+    }
+    function syncMediaVideos(currentTime) {
+      for (const m of mediaVideos) {
+        const show = m.mesh.visible && overlaysGroup.children.indexOf(m.mesh) !== -1;
+        if (show && !m.playing) {
+          m.playing = true;
+          const d = m.v.duration, off = Math.max(0, currentTime - m.start);
+          try { m.v.currentTime = (isFinite(d) && d > 0) ? (m.v.loop ? off % d : Math.min(off, d)) : off; } catch (_) {}
+          const p = m.v.play();
+          if (p && p.catch) p.catch(() => { m.v.muted = true; m.v.play().catch(() => {}); });
+        } else if (!show && m.playing) {
+          m.playing = false;
+          m.v.pause();
+        }
+      }
+    }
+    function stopMediaVideos() {
+      for (const m of mediaVideos) {
+        try { m.v.pause(); m.v.removeAttribute('src'); m.v.load(); } catch (_) {}
+      }
+      mediaVideos = [];
+    }
+
+    // A waypoint placed down on the floor lies flat on it (Matterport-style
+    // "step here" spot) instead of standing up like a sign. Its caption is
+    // stood back up, facing the learner. Gaze still hits the disc normally.
+    function layWaypointFlat(disc, wp) {
+      const yawRad = THREE.MathUtils.degToRad(hasAngles(wp) ? parseFloat(wp.yaw) : ((wp.x !== undefined ? wp.x : 50) - 50) * 0.9);
+      disc.rotation.order = 'YXZ';
+      disc.rotation.set(-Math.PI / 2, -yawRad, 0);
+      disc.scale.setScalar(1.5);
+      const label = disc.children.find(c => c.name !== 'progressRing');
+      if (label) { label.rotation.set(Math.PI / 2, 0, 0); label.position.set(0, -0.55, 0.3); label.scale.setScalar(1 / 1.5); }
     }
 
     // Matterport-style waypoint marker: a floating circular disc with a
@@ -1823,6 +2123,7 @@
       statusElement.textContent = message;
       statusElement.style.display = 'block';
       statusElement.style.background = isError ? 'rgba(220, 38, 38, 0.95)' : 'rgba(17, 24, 39, 0.9)';
+      statusElement.style.color = '#fff'; // was dark text on this dark background — unreadable
       setTimeout(() => { statusElement.style.display = 'none'; }, isError ? 5000 : 3000);
     }
 

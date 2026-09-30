@@ -434,3 +434,94 @@ by exercising the actual controls, not by assumption — with the one
 exception of the end-screen nodes and the project title, both of which
 needed today's fixes to become buildable by a real author and are fixed now.
 No other feature in that build was faked.
+
+## 2026-09-30 — client test round: every item from the email + "Fejl og mangler"
+
+The paying client tested the live build and sent two overlapping lists (an
+email and the "Fejl og mangler" document). Every point from both was fixed or
+answered; root causes first where there was one. Verified by driving the real
+UI in headless Chromium (real clicks, real file inputs, real drag & drop —
+per TESTING.md), plus a backward-compatibility run against the previous
+Builder/Player. What still needs a real Quest 3 is listed at the end.
+
+### Critical — "preview can't play" (after changing start scene / after refresh)
+- **Root cause:** only the project *structure* was saved (localStorage). The
+  media files lived in memory only, so after any refresh every scene still
+  showed its thumbnail but there was no video left — the preview silently
+  played nothing, and the only "fix" was deleting everything and re-uploading.
+  **Fix:** attached files are now stored in the browser's IndexedDB
+  (`MediaStore`, this computer only, nothing uploaded) and re-attached on load.
+  Unused stored files are cleaned up at start-up.
+- **Second data-loss bug found on the way:** after Undo, autosave kept writing
+  the stale pre-undo project object, so every edit made after an Undo was lost
+  on the next refresh. Fixed (active slot always saved from `App.project`).
+- Missing files (e.g. project opened on another computer) are now visible:
+  a banner, a "Missing video" badge on the scene, a "Re-attach" prompt in the
+  scene (keeps all settings), and a message in the preview instead of black.
+- Verified: change start scene → preview; refresh → preview; delete the start
+  scene → preview. All play.
+
+### Canvas
+- Connection lines were invisible because the SVG had a 0×0 box (Chrome/Safari
+  don't paint it). Fixed; lines now also have arrowheads, end at the node rim,
+  and adapt to the white/grey backdrops. Nodes are still freely placeable.
+- Zoom: wheel/trackpad zoom is now proportional to the gesture (was a fixed 10%
+  per event → trackpads jumped hundreds of %). Added − / + buttons (10% steps),
+  a zoom slider, and click-the-% to reset to 100%.
+
+### Scene editor
+- **POV preview** replaces the flat 360° thumbnail: real perspective of the
+  clip (same geometry/placement maths as the Player), drag to look, zoom,
+  timeline scrubbing, play/mute. Waypoints, texts, media and the question are
+  drawn where the learner will see them and can be dragged; image/video files
+  can be dropped onto the view. "⏱ now" buttons set times from the timeline.
+  The view stays pinned at the top of the sheet while editing below.
+- Placement is now stored as angles (`yaw`/`pitch`) so things can go anywhere
+  in 360° (behind, or down on the floor). Old `x`/`y` data converts to exactly
+  the same spot (verified old Player vs new Player on an old-Builder export),
+  and `x`/`y` are still written for older Players.
+- Waypoints placed below −15° lie flat on the floor (toggle per waypoint).
+- Start position: explained in the editor, green START VIEW mark in the POV,
+  "Set start view here" / "Start view" buttons.
+- Duration explained: video scenes play their whole video (length shown);
+  "Duration" only exists for scenes without video and end screens.
+- Trim (start/end, playback only — file untouched).
+- Fade in/out: the Player never read these fields — implemented now (fade in
+  once the first frame shows; fade out over the last N seconds, never while a
+  question waits). Verified by reading the fade plane's opacity during playback.
+- Image tab → **Media** (images and flat video clips; video plays inside the
+  scene, optional mute/loop).
+
+### Compression
+Modal with 3 presets (High / Balanced / Small, estimated size), live progress
+bar with % and time left, only one job at a time (re-opening shows the running
+job), audio routed silently via WebAudio (the overlapping sound came from
+parallel runs playing aloud), before/after table (size, bitrate, resolution,
+format), choice to keep original or use compressed, "Download" for a copy, and
+a plain explanation of where the compressed video lives.
+
+### Preview
+- Header ▶ starts from the selected scene (or the start scene if none).
+- Preview bar: scene picker, "This scene only", Restart; a "finished" card with
+  Play again / Close instead of the panel vanishing.
+- Scene sheet: "Preview from here" (from the scrubbed time) and "This scene only".
+- Flat preview (also the Player's "Run on this screen"): click-and-drag to look
+  a full 360° (was locked to ±55°), scroll / ± to zoom, arrow keys, click an
+  answer / waypoint / Play to select (gaze-dwell still works).
+- 3D clips now show one eye in flat previews (was both eyes side by side /
+  stacked) with a note that depth shows in the headset.
+
+### Where is my work? (client question)
+Help button (ⓘ) in the header answers it: saved automatically in this browser
+on this computer (not GitHub, not cloud); Export .zip = backup + project file;
+open it with the folder icon on any computer. Export modal says the same, and
+only media actually used by scenes goes into the .zip.
+
+### Player-only changes that need a Quest 3 spot-check
+1. The 360° world is now centred on the head (was centred on the floor with a
+   `local-floor` space → ~1.6 m off-centre, picture looked too close/tilted).
+2. Exit / "Hør igen" / Play gate now follow the scene's start direction.
+3. Floor waypoints lying flat + gaze selection on them.
+4. Fade in/out and trim feel in the headset; flat video media playing in XR.
+
+Test scripts used: `t1`–`t7` (Playwright, real UI) — kept outside the repo.
